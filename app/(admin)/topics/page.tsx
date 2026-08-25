@@ -2,12 +2,12 @@ import Link from "next/link";
 import { TopicsTable } from "@/components/topics/topics-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatTopicPath, listTopics } from "@/lib/topics/queries";
+import { formatTopicPath, listTopics, type TopicListRow } from "@/lib/topics/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function TopicsPage() {
-  let topics: Awaited<ReturnType<typeof listTopics>> = [];
+  let topics: TopicListRow[] = [];
   let dbError: string | null = null;
 
   try {

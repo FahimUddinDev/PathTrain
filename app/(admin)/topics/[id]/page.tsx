@@ -2,12 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TopicStatusBadge } from "@/components/topics/topic-status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatTopicPath, getTopicWithChunks } from "@/lib/topics/queries";
+import { formatTopicPath, getTopicWithChunks, type TopicWithChunks } from "@/lib/topics/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function TopicDetailPage({ params }: { params: { id: string } }) {
-  let topic: Awaited<ReturnType<typeof getTopicWithChunks>> | null = null;
+  let topic: TopicWithChunks | null = null;
   let dbError: string | null = null;
 
   try {
