@@ -1,0 +1,24 @@
+---
+description: Unsloth QLoRA training-service and Next.js job trigger
+globs: training-service/**,app/api/training/**
+alwaysApply: false
+---
+
+# Fine-tune service
+
+`/training-service` is a **separate Python** Unsloth QLoRA project. Do not put training loops in Next.js.
+
+- Base: Qwen2.5-7B-Instruct. Method: QLoRA via Unsloth.
+- Next.js starts jobs with `POST /api/training/jobs/start` (spawn `child_process` or HTTP to the service).
+- Jobs are async: `queued` | `running` | `completed` | `failed`. Poll status; stream/tail logs in the admin UI.
+- JSONL format: `instruction` / `input` / `output` (+ `metadata`). Export **approved** examples only.
+- Example types: `qna`, `mcq`, `srijonsil`, `evaluation`, `multi_explain`.
+- Generate synthetic examples with Anthropic/OpenAI, not Ollama.
+
+```ts
+// ✅ fire-and-poll
+await startTrainingJob(datasetId);
+// ❌ await a multi-hour train inside the route handler
+```
+
+M8: load LoRA into Ollama via Modelfile; Playground switches base vs fine-tuned.

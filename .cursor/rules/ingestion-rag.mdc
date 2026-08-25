@@ -1,0 +1,26 @@
+---
+description: Chunker, embedder, and RAG retriever implementation constraints
+globs: lib/ingestion/**,lib/rag/**
+alwaysApply: false
+---
+
+# Ingestion + RAG
+
+Keep these modules:
+
+- `lib/ingestion/chunker.ts` — 300–500 tokens, prefix each chunk with topic name, split on paragraph/sentence, never mid-word.
+- `lib/ingestion/embedder.ts` — embed chunks, write pgvector + metadata; re-embed on topic/chunk edit.
+- `lib/rag/retriever.ts` — similarity search + metadata filters (class / subject / topic).
+
+`/api/test/query` — retrieval only (chunks + scores), no LLM.  
+`/api/test/chat` — retrieval + prompt builder + Ollama (from M5).
+
+```ts
+// ✅
+const chunks = await retrieve({ query, classId, subjectId, topicId });
+
+// ❌ skip filters (Class 6 Science must not hit other classes)
+const chunks = await retrieve({ query });
+```
+
+Do not call Anthropic/OpenAI from the retriever. Cloud LLMs are for dataset generation (M6), not Playground answers.

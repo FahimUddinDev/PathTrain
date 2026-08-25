@@ -1,0 +1,97 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+model Class {
+  id        String    @id @default(cuid())
+  name      String
+  subjects  Subject[]
+  createdAt DateTime  @default(now())
+}
+
+model Subject {
+  id        String    @id @default(cuid())
+  classId   String
+  class     Class     @relation(fields: [classId], references: [id])
+  name      String
+  chapters  Chapter[]
+  createdAt DateTime  @default(now())
+}
+
+model Chapter {
+  id        String   @id @default(cuid())
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id])
+  name      String
+  order     Int      @default(0)
+  topics    Topic[]
+  createdAt DateTime @default(now())
+}
+
+model Topic {
+  id               String            @id @default(cuid())
+  chapterId        String
+  chapter          Chapter           @relation(fields: [chapterId], references: [id])
+  name             String
+  rawText          String            @db.Text
+  status           String            @default("draft") // draft | chunked | embedding | embedded | failed
+  chunks           Chunk[]
+  trainingExamples TrainingExample[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model Chunk {
+  id              String   @id @default(cuid())
+  topicId         String
+  topic           Topic    @relation(fields: [topicId], references: [id])
+  text            String   @db.Text
+  chunkOrder      Int
+  tokenCount      Int
+  embeddingStatus String                     @default("pending") // pending | embedded | failed
+  embedding       Unsupported("vector(1536)")?
+  createdAt       DateTime                   @default(now())
+}
+
+model TrainingExample {
+  id          String   @id @default(cuid())
+  topicId     String
+  topic       Topic    @relation(fields: [topicId], references: [id])
+  type        String   // qna | mcq | srijonsil | evaluation | multi_explain
+  instruction String   @db.Text
+  input       String   @db.Text
+  output      String   @db.Text
+  status      String   @default("generated") // generated | reviewed | approved | rejected
+  createdAt   DateTime @default(now())
+}
+
+model TrainingDataset {
+  id             String        @id @default(cuid())
+  name           String
+  filterCriteria Json
+  exampleCount   Int
+  jsonlPath      String?
+  exportedAt     DateTime?
+  jobs           TrainingJob[]
+  createdAt      DateTime      @default(now())
+}
+
+model TrainingJob {
+  id          String          @id @default(cuid())
+  datasetId   String
+  dataset     TrainingDataset @relation(fields: [datasetId], references: [id])
+  baseModel   String
+  status      String          @default("queued") // queued | running | completed | failed
+  adapterPath String?
+  logs        String?         @db.Text
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+}

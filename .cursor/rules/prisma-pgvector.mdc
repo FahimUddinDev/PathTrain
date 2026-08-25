@@ -1,0 +1,28 @@
+---
+description: Prisma + PostgreSQL + pgvector schema and query conventions
+globs: prisma/**,**/schema.prisma
+alwaysApply: false
+---
+
+# Prisma + pgvector
+
+- PostgreSQL only. Enable pgvector in a migration (`CREATE EXTENSION IF NOT EXISTS vector`).
+- Curriculum: `Class` → `Subject` → `Chapter` (ordered) → `Topic` → `Chunk`.
+- Store embeddings as pgvector columns (or a related vector table) with metadata: classId, subjectId, chapterId, topicId, page.
+- All DB access through Prisma. Raw SQL **only** for pgvector queries via `prisma.$queryRaw` — no standalone `pg` client.
+
+```prisma
+// ✅ hierarchy + status
+model Topic {
+  id        String  @id @default(cuid())
+  chapterId String
+  name      String
+  rawText   String
+  status    TopicStatus
+  chunks    Chunk[]
+}
+
+// ❌ Mongo, Drizzle, or storing vectors only in a sidecar DB this phase
+```
+
+After schema changes: `pnpm prisma migrate dev` — do not hand-edit applied migrations.

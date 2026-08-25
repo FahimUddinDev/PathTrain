@@ -1,0 +1,27 @@
+---
+description: Next.js App Router, TypeScript, Tailwind, and shadcn/ui conventions
+globs: app/**/*.{ts,tsx},components/**/*.tsx,lib/**/*.ts
+alwaysApply: false
+---
+
+# Next.js + UI
+
+- App Router only (`app/`). No Pages Router.
+- TypeScript strict. Server Components by default; `"use client"` only when interactivity is needed.
+- API routes live under `app/api/**/route.ts`. Keep `route.ts` thin — business logic in `lib/`.
+- All APIs require admin auth. Names (files, vars, functions) in English.
+- UI: Tailwind + shadcn/ui. Avoid custom CSS. Do not add MUI/Chakra.
+
+```tsx
+// ✅ Server Component fetching data
+export default async function TopicsPage() {
+  const topics = await prisma.topic.findMany();
+  return <TopicList topics={topics} />;
+}
+
+// ❌ Client fetch for data the server already has
+"use client";
+useEffect(() => { fetch("/api/topics").then(...) }, []);
+```
+
+Playground (M4+): query + filters, retrieved chunks **and** answer side by side, editable system prompt. M8: base vs fine-tuned toggle and comparison.

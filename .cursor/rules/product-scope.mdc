@@ -1,0 +1,28 @@
+---
+description: PathTrain product scope, milestones, and admin-only constraints
+alwaysApply: true
+---
+
+# Product scope
+
+PathTrain is an **admin-only** curriculum → RAG → dataset → fine-tune app.
+
+**Fine-tune goals:** generate MCQ + srijonsil questions; mark answers (score, mistake, how to improve); explain topics multiple ways with real-life examples.
+
+## In / out
+
+- In: Class → Subject → Chapter → Topic, chunk/embed, RAG playground, 5 training example types, JSONL export, Unsloth job, base vs fine-tuned compare.
+- Out: student UI, public signup, OCR/PDF ingest, multi-tenant SaaS.
+
+Follow `REQUIREMENTS.md`. Do not implement later milestones ahead of the current one.
+
+```
+M0 → M1 → M2 → M3 → M4 (verify RAG) → M5 (Ollama) → M6 → M7 → M8
+```
+
+## Status
+
+Topic: `draft` → `chunked` → `embedding` → `embedded` | `failed`
+
+TrainingExample `type`: `qna` | `mcq` | `srijonsil` | `evaluation` | `multi_explain`  
+JSONL export includes **approved** examples only.
