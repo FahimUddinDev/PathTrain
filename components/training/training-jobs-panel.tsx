@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -30,6 +36,7 @@ export type JobStatusPayload = {
   baseModel: string;
   status: string;
   adapterPath: string | null;
+  modelTag: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -52,7 +59,8 @@ const STATUS_BADGE: Record<
   running: { variant: "default" },
   completed: {
     variant: "default",
-    className: "border-transparent bg-emerald-600 text-white hover:bg-emerald-600",
+    className:
+      "border-transparent bg-emerald-600 text-white hover:bg-emerald-600",
   },
   failed: { variant: "destructive" },
 };
@@ -67,7 +75,10 @@ function JobStatusBadge({ status }: { status: string }) {
   const config = STATUS_BADGE[key];
 
   return (
-    <Badge variant={config.variant} className={cn("capitalize", config.className)}>
+    <Badge
+      variant={config.variant}
+      className={cn("capitalize", config.className)}
+    >
       {status}
     </Badge>
   );
@@ -82,11 +93,15 @@ function formatWhen(iso: string | null | undefined): string {
   }
 }
 
-export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelProps) {
+export function TrainingJobsPanel({
+  datasets,
+  initialJob,
+}: TrainingJobsPanelProps) {
   const [datasetId, setDatasetId] = useState(datasets[0]?.id ?? "");
   const [job, setJob] = useState<JobStatusPayload | null>(initialJob);
   const [logs, setLogs] = useState("");
   const [starting, setStarting] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const logsEndRef = useRef<HTMLPreElement>(null);
   const logsLenRef = useRef(0);
@@ -100,16 +115,24 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
     const poll = async () => {
       try {
         const [statusRes, logsRes] = await Promise.all([
-          fetch(`/api/training/jobs/${job.id}/status`, { signal: controller.signal }),
-          fetch(`/api/training/jobs/${job.id}/logs`, { signal: controller.signal }),
+          fetch(`/api/training/jobs/${job.id}/status`, {
+            signal: controller.signal,
+          }),
+          fetch(`/api/training/jobs/${job.id}/logs`, {
+            signal: controller.signal,
+          }),
         ]);
 
         if (!statusRes.ok) {
-          const body = (await statusRes.json().catch(() => null)) as { error?: string } | null;
+          const body = (await statusRes.json().catch(() => null)) as {
+            error?: string;
+          } | null;
           throw new Error(body?.error ?? `Status failed (${statusRes.status})`);
         }
         if (!logsRes.ok) {
-          const body = (await logsRes.json().catch(() => null)) as { error?: string } | null;
+          const body = (await logsRes.json().catch(() => null)) as {
+            error?: string;
+          } | null;
           throw new Error(body?.error ?? `Logs failed (${logsRes.status})`);
         }
 
@@ -125,7 +148,11 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
         setLogs(logsBody.logs ?? "");
         setError(null);
       } catch (err) {
-        if (cancelled || (err instanceof DOMException && err.name === "AbortError")) return;
+        if (
+          cancelled ||
+          (err instanceof DOMException && err.name === "AbortError")
+        )
+          return;
         setError(err instanceof Error ? err.message : "Polling failed");
       }
     };
@@ -138,7 +165,7 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
       controller.abort();
       clearInterval(timer);
     };
-  }, [job?.id, job?.status]);
+  }, [job?.id, job?.status, job]);
 
   useEffect(() => {
     if (logs.length > logsLenRef.current && logsEndRef.current) {
@@ -182,6 +209,7 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
         baseModel: body.baseModel,
         status: body.status,
         adapterPath: body.adapterPath ?? null,
+        modelTag: body.modelTag ?? null,
         startedAt: body.startedAt ?? null,
         completedAt: body.completedAt ?? null,
         createdAt: body.createdAt,
@@ -194,7 +222,75 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
     }
   }
 
+  async function registerOllama() {
+    if (!job || job.status !== "completed" || !job.adapterPath) {
+      setError("A completed job with an adapter is required to register in Ollama");
+      return;
+    }
+
+    setRegistering(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/training/jobs/${job.id}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "adapter" }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | (JobStatusPayload & { error?: string; logs?: string })
+        | null;
+
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Register failed (${res.status})`);
+      }
+
+      // Poll until the latest register run finishes (done line or error after start marker).
+      const jobId = job.id;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, POLL_MS));
+        const [statusRes, logsRes] = await Promise.all([
+          fetch(`/api/training/jobs/${jobId}/status`),
+          fetch(`/api/training/jobs/${jobId}/logs`),
+        ]);
+        if (!statusRes.ok || !logsRes.ok) continue;
+
+        const statusBody = (await statusRes.json()) as JobStatusPayload;
+        const logsBody = (await logsRes.json()) as { logs?: string };
+        const nextLogs = logsBody.logs ?? "";
+        setLogs(nextLogs);
+        setJob((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...statusBody,
+                datasetName: prev.datasetName,
+              }
+            : prev,
+        );
+
+        const startIdx = nextLogs.lastIndexOf("[register] starting Ollama register");
+        if (startIdx < 0) continue;
+        const afterStart = nextLogs.slice(startIdx);
+        if (/\[done\]\s+model_tag=/.test(afterStart)) break;
+        if (
+          afterStart.includes("[error] register") ||
+          afterStart.includes("register_ollama.py exited") ||
+          afterStart.includes("failed to spawn register_ollama.py")
+        ) {
+          throw new Error("Ollama register failed — see job logs");
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to register Ollama model");
+    } finally {
+      setRegistering(false);
+    }
+  }
+
   const busy = starting || (job != null && isActiveStatus(job.status));
+  const canRegister =
+    job?.status === "completed" && Boolean(job.adapterPath) && !registering && !busy;
 
   return (
     <div className="space-y-6">
@@ -202,14 +298,18 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
         <CardHeader>
           <CardTitle>Start training</CardTitle>
           <CardDescription>
-            Pick an exported JSONL dataset and run Unsloth QLoRA via the training service.
+            Pick an exported JSONL dataset and run Unsloth QLoRA via the
+            training service.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {datasets.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No exported datasets yet. Export approved examples from{" "}
-              <Link href="/training/datasets" className="underline hover:text-foreground">
+              <Link
+                href="/training/datasets"
+                className="underline hover:text-foreground"
+              >
                 Datasets
               </Link>{" "}
               first.
@@ -218,7 +318,11 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               <div className="min-w-0 flex-1 space-y-2">
                 <Label htmlFor="dataset">Dataset</Label>
-                <Select value={datasetId} onValueChange={setDatasetId} disabled={busy}>
+                <Select
+                  value={datasetId}
+                  onValueChange={setDatasetId}
+                  disabled={busy}
+                >
                   <SelectTrigger id="dataset">
                     <SelectValue placeholder="Select a dataset" />
                   </SelectTrigger>
@@ -231,8 +335,15 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={() => void startJob()} disabled={!datasetId || busy}>
-                {starting ? "Starting…" : busy ? "Job running…" : "Start training"}
+              <Button
+                onClick={() => void startJob()}
+                disabled={!datasetId || busy}
+              >
+                {starting
+                  ? "Starting…"
+                  : busy
+                    ? "Job running…"
+                    : "Start training"}
               </Button>
             </div>
           )}
@@ -250,18 +361,49 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
             <CardDescription className="space-y-1 font-mono text-xs">
               <div>ID: {job.id}</div>
               <div>
-                Dataset: {job.datasetName ?? job.datasetId} · Model: {job.baseModel}
+                Dataset: {job.datasetName ?? job.datasetId} · Model:{" "}
+                {job.baseModel}
               </div>
               <div>
-                Started: {formatWhen(job.startedAt)} · Completed: {formatWhen(job.completedAt)}
+                Started: {formatWhen(job.startedAt)} · Completed:{" "}
+                {formatWhen(job.completedAt)}
               </div>
               {job.adapterPath ? <div>Adapter: {job.adapterPath}</div> : null}
+              {job.modelTag ? <div>Ollama model: {job.modelTag}</div> : null}
               {isActiveStatus(job.status) ? (
-                <div className="text-muted-foreground">Polling every {POLL_MS / 1000}s…</div>
+                <div className="text-muted-foreground">
+                  Polling every {POLL_MS / 1000}s…
+                </div>
               ) : null}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {job.status === "completed" && job.adapterPath ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => void registerOllama()}
+                  disabled={!canRegister}
+                >
+                  {registering
+                    ? "Registering…"
+                    : job.modelTag
+                      ? "Re-register in Ollama"
+                      : "Register in Ollama"}
+                </Button>
+                {job.modelTag ? (
+                  <span className="text-xs text-muted-foreground">
+                    Available as <span className="font-mono">{job.modelTag}</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    Writes a Modelfile (FROM + ADAPTER) and runs{" "}
+                    <span className="font-mono">ollama create</span>.
+                  </span>
+                )}
+              </div>
+            ) : null}
+            <div>
             <Label className="mb-2 block">Logs</Label>
             <pre
               ref={logsEndRef}
@@ -269,6 +411,7 @@ export function TrainingJobsPanel({ datasets, initialJob }: TrainingJobsPanelPro
             >
               {logs.trim() ? logs : "Waiting for training output…"}
             </pre>
+            </div>
           </CardContent>
         </Card>
       ) : null}

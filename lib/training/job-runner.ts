@@ -91,8 +91,41 @@ export async function startTrainingJob(
   return running;
 }
 
-export async function getJobStatus(jobId: string): Promise<TrainingJob> {
-  return prisma.trainingJob.findUniqueOrThrow({ where: { id: jobId } });
+/** Fields returned by the job status API (includes M8 modelTag). */
+export type TrainingJobStatus = {
+  id: string;
+  datasetId: string;
+  baseModel: string;
+  status: string;
+  adapterPath: string | null;
+  modelTag: string | null;
+  logs: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  createdAt: Date;
+};
+
+export async function getJobStatus(jobId: string): Promise<TrainingJobStatus> {
+  const job = await prisma.trainingJob.findUniqueOrThrow({
+    where: { id: jobId },
+  });
+
+  // modelTag is on TrainingJob in schema; cast keeps status API typed even if
+  // a stale Prisma Client generate is still loaded by the language service.
+  const row = job as typeof job & { modelTag?: string | null };
+
+  return {
+    id: row.id,
+    datasetId: row.datasetId,
+    baseModel: row.baseModel,
+    status: row.status,
+    adapterPath: row.adapterPath,
+    modelTag: row.modelTag ?? null,
+    logs: row.logs,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
+    createdAt: row.createdAt,
+  };
 }
 
 function watchTrainingProcess(

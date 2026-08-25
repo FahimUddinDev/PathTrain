@@ -409,6 +409,7 @@ All endpoints require admin auth unless noted.
 | POST | Dataset build / export | M7 | JSONL + TrainingDataset |
 | POST | `/api/training/jobs/start` | M7 | Start Unsloth job |
 | GET | Job status / logs | M7 | Polling |
+| POST | `/api/training/jobs/:id/register` | M8 | Modelfile + `ollama create` |
 
 Exact REST shapes may be refined at implementation; behavior above is required.
 
@@ -489,7 +490,7 @@ M0 → M1 → M2 → M3 → M4     RAG working end-to-end (no fine-tune)
 - [ ] Full AI answer is served by local Ollama.
 - [ ] A Topic yields five approved-capable example types, including evaluation and multi-explain.
 - [ ] Approved examples export to instruction JSONL and can start a training job with visible status/logs.
-- [ ] Playground compares base vs fine-tuned answers side by side, with regression notes.
+- [x] Playground compares base vs fine-tuned answers side by side, with regression notes.
 
 ---
 

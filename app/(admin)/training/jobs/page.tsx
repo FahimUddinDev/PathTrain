@@ -35,6 +35,7 @@ export default async function TrainingJobsPage() {
         baseModel: activeJob.baseModel,
         status: activeJob.status,
         adapterPath: activeJob.adapterPath,
+        modelTag: activeJob.modelTag,
         startedAt: activeJob.startedAt?.toISOString() ?? null,
         completedAt: activeJob.completedAt?.toISOString() ?? null,
         createdAt: activeJob.createdAt.toISOString(),

@@ -14,6 +14,7 @@ export async function GET(_request: Request, context: RouteContext) {
       baseModel: job.baseModel,
       status: job.status,
       adapterPath: job.adapterPath,
+      modelTag: job.modelTag,
       startedAt: job.startedAt,
       completedAt: job.completedAt,
       createdAt: job.createdAt,
