@@ -457,8 +457,8 @@ Minimum configuration (names may be adjusted, purpose is required):
 | `OLLAMA_BASE_URL` | Default `http://localhost:11434` |
 | `OLLAMA_MODEL` | Base instruct model name |
 | `OLLAMA_FINETUNED_MODEL` | Fine-tuned Ollama tag (M8) |
-| `EMBEDDING_MODEL` | Embedding model identifier |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Dataset generation and evaluation |
+| `OLLAMA_EMBEDDING_MODEL` | Local embedding model (default `nomic-embed-text`, 768-d) |
+| `ANTHROPIC_API_KEY` | Dataset generation and evaluation |
 
 ---
 

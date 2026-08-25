@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/db/prisma";
 import { updateChunkEmbedding } from "@/lib/db/vector";
 
-const EMBEDDING_DIM = 1536;
-const EMBED_BATCH_SIZE = 64;
-const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
+const EMBEDDING_DIM = 768;
+const EMBED_CONCURRENCY = 6;
+const EMBEDDING_STATUS_VISIBLE_MS = 250;
+const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
+const DEFAULT_OLLAMA_EMBEDDING_MODEL = "nomic-embed-text";
 
 export type EmbedTopicResult = {
   topicId: string;
@@ -11,8 +13,12 @@ export type EmbedTopicResult = {
   failed: number;
 };
 
+function ollamaBaseUrl(): string {
+  return process.env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_BASE_URL;
+}
+
 function embeddingModel(): string {
-  return process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
+  return process.env.OLLAMA_EMBEDDING_MODEL?.trim() || DEFAULT_OLLAMA_EMBEDDING_MODEL;
 }
 
 function failureMessage(error: unknown): string {
@@ -20,55 +26,68 @@ function failureMessage(error: unknown): string {
   return "Embedding failed";
 }
 
-type OpenAIEmbeddingResponse = {
-  data?: Array<{ embedding: number[]; index: number }>;
-  error?: { message?: string };
+function ollamaUnreachableError(): Error {
+  return new Error(
+    `Ollama is not reachable at ${ollamaBaseUrl()}. Start Ollama and pull ${embeddingModel()}.`,
+  );
+}
+
+type OllamaEmbeddingResponse = {
+  embedding?: number[];
+  error?: string;
 };
 
+async function embedOneText(text: string): Promise<number[]> {
+  const model = embeddingModel();
+  let response: Response;
+  try {
+    response = await fetch(`${ollamaBaseUrl()}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, prompt: text }),
+    });
+  } catch {
+    throw ollamaUnreachableError();
+  }
+
+  const payload = (await response.json().catch(() => ({}))) as OllamaEmbeddingResponse;
+
+  if (!response.ok) {
+    const detail = payload.error ?? `HTTP ${response.status}`;
+    throw new Error(`Ollama embedding request failed (${response.status}): ${detail}`);
+  }
+
+  const embedding = payload.embedding;
+  if (!Array.isArray(embedding) || embedding.length === 0) {
+    throw new Error("Ollama embedding response missing embedding vector");
+  }
+  if (embedding.length !== EMBEDDING_DIM) {
+    throw new Error(
+      `Expected ${EMBEDDING_DIM}-d embedding from ${model}, got ${embedding.length}`,
+    );
+  }
+  return embedding;
+}
+
 /**
- * Embed texts with OpenAI (1536-d, matches Chunk.embedding / pgvector).
+ * Embed texts with Ollama nomic-embed-text (768-d, matches Chunk.embedding / pgvector).
+ * One prompt per /api/embeddings call; requests run with limited concurrency.
  * Exported so the retriever can embed queries with the same model.
  */
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
 
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set");
-  }
+  const results: number[][] = new Array(texts.length);
 
-  const response = await fetch(OPENAI_EMBEDDINGS_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: embeddingModel(),
-      input: texts,
-    }),
-  });
-
-  const payload = (await response.json()) as OpenAIEmbeddingResponse;
-
-  if (!response.ok) {
-    const detail = payload.error?.message ?? `HTTP ${response.status}`;
-    throw new Error(`Embedding request failed: ${detail}`);
-  }
-
-  const items = [...(payload.data ?? [])].sort((a, b) => a.index - b.index);
-  if (items.length !== texts.length) {
-    throw new Error(`Expected ${texts.length} embeddings, got ${items.length}`);
-  }
-
-  return items.map((item) => {
-    if (item.embedding.length !== EMBEDDING_DIM) {
-      throw new Error(
-        `Expected ${EMBEDDING_DIM}-d embedding from ${embeddingModel()}, got ${item.embedding.length}`,
-      );
+  for (let offset = 0; offset < texts.length; offset += EMBED_CONCURRENCY) {
+    const slice = texts.slice(offset, offset + EMBED_CONCURRENCY);
+    const vectors = await Promise.all(slice.map((text) => embedOneText(text)));
+    for (let i = 0; i < vectors.length; i++) {
+      results[offset + i] = vectors[i];
     }
-    return item.embedding;
-  });
+  }
+
+  return results;
 }
 
 export async function embedText(text: string): Promise<number[]> {
@@ -109,6 +128,8 @@ export async function embedTopicChunks(topicId: string): Promise<EmbedTopicResul
   }
 
   await updateTopicStatus(topicId, "embedding", null);
+  // Give UI polls a window to observe the intermediate status.
+  await new Promise((resolve) => setTimeout(resolve, EMBEDDING_STATUS_VISIBLE_MS));
 
   const chunks = await prisma.chunk.findMany({
     where: { topicId, embeddingStatus: { in: ["pending", "failed"] } },
@@ -131,14 +152,10 @@ export async function embedTopicChunks(topicId: string): Promise<EmbedTopicResul
   let embedded = 0;
 
   try {
-    for (let offset = 0; offset < chunks.length; offset += EMBED_BATCH_SIZE) {
-      const batch = chunks.slice(offset, offset + EMBED_BATCH_SIZE);
-      const vectors = await embedTexts(batch.map((chunk) => chunk.text));
-
-      for (let i = 0; i < batch.length; i++) {
-        await updateChunkEmbedding(batch[i].id, vectors[i]);
-        embedded += 1;
-      }
+    const vectors = await embedTexts(chunks.map((chunk) => chunk.text));
+    for (let i = 0; i < chunks.length; i++) {
+      await updateChunkEmbedding(chunks[i].id, vectors[i]);
+      embedded += 1;
     }
 
     await updateTopicStatus(topicId, "embedded", null);

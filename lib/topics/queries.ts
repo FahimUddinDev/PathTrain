@@ -14,6 +14,7 @@ export type TopicListRow = {
 export type TopicWithChunks = {
   id: string;
   name: string;
+  rawText: string;
   status: string;
   failureReason: string | null;
   chapter: {
@@ -72,6 +73,7 @@ export async function getTopicWithChunks(id: string): Promise<TopicWithChunks | 
   return {
     id: topic.id,
     name: topic.name,
+    rawText: topic.rawText,
     status: topic.status,
     failureReason: readNullableString(topic, "failureReason"),
     chapter: {

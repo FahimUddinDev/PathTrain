@@ -32,4 +32,4 @@ npx create-next-app   # unless scaffolding M0 with pnpm
 - Add shadcn components with the project's shadcn CLI (`pnpm dlx shadcn@latest add …`). Avoid custom CSS.
 - Call Ollama for Playground answers; use Anthropic/OpenAI only for training-example generation and evaluation.
 - Trigger Unsloth from Next.js via `child_process` or HTTP to `/training-service` — never inline training in a Next.js route handler.
-- Keep `DATABASE_URL`, `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, `OLLAMA_BASE_URL` in `.env`. Names in English.
+- Keep `DATABASE_URL`, `ANTHROPIC_API_KEY`, `OLLAMA_BASE_URL`, `OLLAMA_EMBEDDING_MODEL` in `.env`. Names in English.

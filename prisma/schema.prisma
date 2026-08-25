@@ -68,7 +68,7 @@ model Chunk {
   page            Int?
   editable        Boolean                     @default(true)
   embeddingStatus String                      @default("pending") // pending | embedded | failed
-  embedding       Unsupported("vector(1536)")?
+  embedding       Unsupported("vector(768)")?
   createdAt       DateTime                    @default(now())
   updatedAt       DateTime                    @default(now()) @updatedAt
 

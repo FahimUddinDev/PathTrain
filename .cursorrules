@@ -13,4 +13,4 @@ Rules:
 - UI with Tailwind + shadcn/ui, avoid custom CSS
 - Code/variable names always in English
 - No student-facing features for now — admin/internal tool only
-- Keep DATABASE_URL, ANTHROPIC_API_KEY/OPENAI_API_KEY, OLLAMA_BASE_URL in .env
+- Keep DATABASE_URL, ANTHROPIC_API_KEY, OLLAMA_BASE_URL, OLLAMA_EMBEDDING_MODEL in .env
