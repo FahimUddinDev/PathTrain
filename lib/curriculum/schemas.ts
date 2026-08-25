@@ -19,6 +19,13 @@ export const createChapterSchema = z.object({
     .optional(),
 });
 
+export const createTopicSchema = z.object({
+  chapterId: z.string().min(1, "chapterId is required"),
+  name: z.string().trim().min(1, "name is required"),
+  text: z.string().trim().min(1, "text is required"),
+});
+
 export type CreateClassInput = z.infer<typeof createClassSchema>;
 export type CreateSubjectInput = z.infer<typeof createSubjectSchema>;
 export type CreateChapterInput = z.infer<typeof createChapterSchema>;
+export type CreateTopicInput = z.infer<typeof createTopicSchema>;
