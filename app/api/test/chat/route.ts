@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseJsonBody } from "@/lib/curriculum/http";
-import { generateWithOllama } from "@/lib/llm/ollama";
+import { streamWithOllama } from "@/lib/llm/ollama";
 import { buildRagPrompt } from "@/lib/rag/prompt-builder";
 import {
   optionalString,
@@ -10,9 +10,8 @@ import {
 
 export const maxDuration = 120;
 
-function isOllamaUnavailable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /ollama|fetch failed|econnrefused|enotfound/i.test(message);
+function ndjsonLine(payload: unknown): Uint8Array {
+  return new TextEncoder().encode(`${JSON.stringify(payload)}\n`);
 }
 
 export async function POST(request: Request) {
@@ -27,24 +26,47 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "query is required" }, { status: 400 });
   }
 
+  let chunks;
+  let prompt;
   try {
-    const chunks = await retrieve(input);
-    const prompt = buildRagPrompt({
+    chunks = await retrieve(input);
+    prompt = buildRagPrompt({
       query: input.query,
       chunks,
       systemPrompt: optionalString(record.systemPrompt),
     });
-    const answer = await generateWithOllama({
-      system: prompt.system,
-      prompt: prompt.user,
-      model: optionalString(record.model),
-    });
-    return NextResponse.json({ chunks, answer, prompt });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Chat failed";
-    if (isOllamaUnavailable(error)) {
-      return NextResponse.json({ error: message }, { status: 503 });
-    }
+    const message = error instanceof Error ? error.message : "Retrieval failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        controller.enqueue(ndjsonLine({ type: "meta", chunks, prompt }));
+
+        for await (const token of streamWithOllama({
+          system: prompt.system,
+          prompt: prompt.user,
+          model: optionalString(record.model),
+        })) {
+          controller.enqueue(ndjsonLine({ type: "token", delta: token }));
+        }
+
+        controller.enqueue(ndjsonLine({ type: "done" }));
+        controller.close();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Chat failed";
+        controller.enqueue(ndjsonLine({ type: "error", error: message }));
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+    },
+  });
 }

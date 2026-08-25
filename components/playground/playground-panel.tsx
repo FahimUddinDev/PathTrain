@@ -184,6 +184,7 @@ export function PlaygroundPanel() {
 
     setPending("chat");
     setError(null);
+    setAnswer("");
     try {
       const response = await fetch("/api/test/chat", {
         method: "POST",
@@ -193,15 +194,55 @@ export function PlaygroundPanel() {
           systemPrompt: systemPrompt.trim() || undefined,
         }),
       });
-      const data = await readJson(response);
+
       if (!response.ok) {
+        const data = await readJson(response);
         setChunks(null);
         setAnswer(null);
         setError(errorMessage(data, "Chat failed"));
         return;
       }
-      setChunks(asChunks(data));
-      setAnswer(typeof data.answer === "string" ? data.answer : "");
+
+      if (!response.body) {
+        setAnswer(null);
+        setError("Chat returned an empty response.");
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const event = parseStreamEvent(line);
+          if (!event) continue;
+
+          if (event.type === "meta") {
+            setChunks(asChunks(event));
+          } else if (event.type === "token" && typeof event.delta === "string") {
+            setAnswer((current) => (current ?? "") + event.delta);
+          } else if (event.type === "error") {
+            setAnswer(null);
+            setError(errorMessage(event, "Chat failed"));
+          }
+        }
+      }
+
+      const trailing = parseStreamEvent(buffer);
+      if (trailing?.type === "token" && typeof trailing.delta === "string") {
+        setAnswer((current) => (current ?? "") + trailing.delta);
+      } else if (trailing?.type === "error") {
+        setAnswer(null);
+        setError(errorMessage(trailing, "Chat failed"));
+      }
     } catch (err) {
       setChunks(null);
       setAnswer(null);
@@ -375,14 +416,24 @@ export function PlaygroundPanel() {
             <CardDescription>Generated from retrieved chunks and the system prompt</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 overflow-auto">
-            {pending === "chat" ? (
+            {pending === "chat" && !answer ? (
               <p className="text-sm text-muted-foreground">Waiting for the local model…</p>
             ) : answer === null ? (
               <p className="text-sm text-muted-foreground">
                 Run Full AI answer to generate a response from the retrieved chunks.
               </p>
             ) : answer.trim() ? (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{answer}</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                {answer}
+                {pending === "chat" ? (
+                  <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground align-text-bottom" />
+                ) : null}
+              </p>
+            ) : pending === "chat" ? (
+              <p className="text-sm text-muted-foreground">
+                Generating…
+                <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-muted-foreground align-text-bottom" />
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">The model returned an empty answer.</p>
             )}
@@ -478,6 +529,20 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
 
 function errorMessage(data: Record<string, unknown>, fallback: string) {
   return typeof data.error === "string" && data.error.trim() ? data.error : fallback;
+}
+
+function parseStreamEvent(line: string): Record<string, unknown> | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  try {
+    const data = JSON.parse(trimmed) as unknown;
+    if (data && typeof data === "object") return data as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function asChunks(data: Record<string, unknown>): RetrievedChunk[] {
