@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { credentialsMatch, getAdminCredentials } from "@/lib/auth/credentials";
-import { createSessionToken, sessionCookieOptions, SESSION_COOKIE } from "@/lib/auth/session";
+import {
+  createSessionToken,
+  sessionCookieOptions,
+  SESSION_COOKIE,
+} from "@/lib/auth/session";
 
 export async function POST(request: Request) {
   try {
@@ -16,14 +20,20 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as { username?: string; password?: string };
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 },
+    );
   }
 
   const username = typeof body.username === "string" ? body.username : "";
   const password = typeof body.password === "string" ? body.password : "";
 
   if (!credentialsMatch(username, password)) {
-    return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Invalid username or password" },
+      { status: 401 },
+    );
   }
 
   const token = await createSessionToken();

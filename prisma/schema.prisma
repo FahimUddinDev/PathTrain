@@ -14,62 +14,82 @@ model Class {
   name      String
   subjects  Subject[]
   createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
 }
 
 model Subject {
   id        String    @id @default(cuid())
   classId   String
-  class     Class     @relation(fields: [classId], references: [id])
+  class     Class     @relation(fields: [classId], references: [id], onDelete: Cascade)
   name      String
   chapters  Chapter[]
   createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+
+  @@index([classId])
 }
 
 model Chapter {
   id        String   @id @default(cuid())
   subjectId String
-  subject   Subject  @relation(fields: [subjectId], references: [id])
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   name      String
   order     Int      @default(0)
   topics    Topic[]
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([subjectId])
 }
 
 model Topic {
   id               String            @id @default(cuid())
   chapterId        String
-  chapter          Chapter           @relation(fields: [chapterId], references: [id])
+  chapter          Chapter           @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   name             String
   rawText          String            @db.Text
   status           String            @default("draft") // draft | chunked | embedding | embedded | failed
+  failureReason    String?
   chunks           Chunk[]
   trainingExamples TrainingExample[]
   createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  updatedAt        DateTime          @default(now()) @updatedAt
+
+  @@index([chapterId])
 }
 
 model Chunk {
-  id              String   @id @default(cuid())
+  id              String                      @id @default(cuid())
   topicId         String
-  topic           Topic    @relation(fields: [topicId], references: [id])
-  text            String   @db.Text
+  topic           Topic                       @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  text            String                      @db.Text
   chunkOrder      Int
   tokenCount      Int
-  embeddingStatus String                     @default("pending") // pending | embedded | failed
+  page            Int?
+  editable        Boolean                     @default(true)
+  embeddingStatus String                      @default("pending") // pending | embedded | failed
   embedding       Unsupported("vector(1536)")?
-  createdAt       DateTime                   @default(now())
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @default(now()) @updatedAt
+
+  @@index([topicId])
 }
 
 model TrainingExample {
   id          String   @id @default(cuid())
   topicId     String
-  topic       Topic    @relation(fields: [topicId], references: [id])
-  type        String   // qna | mcq | srijonsil | evaluation | multi_explain
+  topic       Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  type        String // qna | mcq | srijonsil | evaluation | multi_explain
   instruction String   @db.Text
   input       String   @db.Text
   output      String   @db.Text
-  status      String   @default("generated") // generated | reviewed | approved | rejected
+  metadata    Json?
+  status      String   @default("generated") // generated | approved | rejected
+  reviewNotes String?  @db.Text
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([topicId])
 }
 
 model TrainingDataset {
@@ -78,6 +98,7 @@ model TrainingDataset {
   filterCriteria Json
   exampleCount   Int
   jsonlPath      String?
+  log            String?       @db.Text
   exportedAt     DateTime?
   jobs           TrainingJob[]
   createdAt      DateTime      @default(now())
@@ -86,12 +107,15 @@ model TrainingDataset {
 model TrainingJob {
   id          String          @id @default(cuid())
   datasetId   String
-  dataset     TrainingDataset @relation(fields: [datasetId], references: [id])
+  dataset     TrainingDataset @relation(fields: [datasetId], references: [id], onDelete: Restrict)
   baseModel   String
   status      String          @default("queued") // queued | running | completed | failed
   adapterPath String?
+  modelTag    String?
   logs        String?         @db.Text
   startedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime        @default(now())
+
+  @@index([datasetId])
 }

@@ -19,12 +19,16 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i += 1) {
     binary += String.fromCharCode(bytes[i]);
   }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function base64UrlToBytes(value: string): Uint8Array {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = padded.length % 4 === 0 ? "" : "=".repeat(4 - (padded.length % 4));
+  const pad =
+    padded.length % 4 === 0 ? "" : "=".repeat(4 - (padded.length % 4));
   const binary = atob(padded + pad);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
@@ -60,7 +64,11 @@ async function hmacSign(message: string): Promise<string> {
     false,
     ["sign"],
   );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(message),
+  );
   return bytesToBase64Url(new Uint8Array(signature));
 }
 
@@ -72,7 +80,9 @@ export async function createSessionToken(): Promise<string> {
   return `${payload}.${signature}`;
 }
 
-export async function verifySessionToken(token: string | undefined): Promise<boolean> {
+export async function verifySessionToken(
+  token: string | undefined,
+): Promise<boolean> {
   if (!token) {
     return false;
   }

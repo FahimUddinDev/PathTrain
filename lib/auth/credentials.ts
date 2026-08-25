@@ -20,7 +20,13 @@ export function getAdminCredentials() {
   return { username, password };
 }
 
-export function credentialsMatch(inputUsername: string, inputPassword: string): boolean {
+export function credentialsMatch(
+  inputUsername: string,
+  inputPassword: string,
+): boolean {
   const { username, password } = getAdminCredentials();
-  return timingSafeEqualUtf8(inputUsername, username) && timingSafeEqualUtf8(inputPassword, password);
+  return (
+    timingSafeEqualUtf8(inputUsername, username) &&
+    timingSafeEqualUtf8(inputPassword, password)
+  );
 }
