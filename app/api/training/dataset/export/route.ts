@@ -1,26 +1,49 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { exportApprovedDataset } from "@/lib/training/dataset-exporter";
 
+const bodySchema = z.object({
+  name: z.string().min(1),
+  classId: z.string().min(1).optional(),
+  subjectId: z.string().min(1).optional(),
+  chapterId: z.string().min(1).optional(),
+});
+
 export async function POST(request: Request) {
-  const body = (await request.json()) as {
-    name?: string;
-    classId?: string;
-    subjectId?: string;
-    chapterId?: string;
-  };
-  if (!body.name?.trim()) {
-    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const parsed = bodySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: "name is required; classId, subjectId, chapterId are optional filters",
+        details: parsed.error.flatten(),
+      },
+      { status: 400 },
+    );
+  }
+
+  const { name, classId, subjectId, chapterId } = parsed.data;
+
   try {
-    const dataset = await exportApprovedDataset(body.name.trim(), {
-      classId: body.classId,
-      subjectId: body.subjectId,
-      chapterId: body.chapterId,
+    const dataset = await exportApprovedDataset(name, {
+      classId,
+      subjectId,
+      chapterId,
     });
-    return NextResponse.json(dataset, { status: 201 });
+    return NextResponse.json({ jsonlPath: dataset.jsonlPath }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Export failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const clientError =
+      message.includes("No approved") || message.includes("required");
+    return NextResponse.json(
+      { error: message },
+      { status: clientError ? 400 : 500 },
+    );
   }
 }

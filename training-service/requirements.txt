@@ -3,4 +3,5 @@ transformers
 datasets
 accelerate
 peft
+trl
 unsloth
