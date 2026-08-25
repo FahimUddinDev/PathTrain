@@ -4,9 +4,11 @@ import { createTopicSchema } from "@/lib/curriculum/schemas";
 import { prisma } from "@/lib/db/prisma";
 import { createAndChunkTopic } from "@/lib/ingestion/ingest-topic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const chapterId = new URL(request.url).searchParams.get("chapterId") ?? undefined;
   try {
     const topics = await prisma.topic.findMany({
+      where: chapterId ? { chapterId } : undefined,
       include: {
         chapter: { include: { subject: { include: { class: true } } } },
       },

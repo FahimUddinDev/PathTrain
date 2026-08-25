@@ -12,16 +12,23 @@ export type OllamaGenerateInput = {
  */
 export async function generateWithOllama(input: OllamaGenerateInput): Promise<string> {
   const model = input.model ?? OLLAMA_MODEL;
-  const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      prompt: input.prompt ?? "",
-      system: input.system,
-      stream: false,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt: input.prompt ?? "",
+        system: input.system,
+        stream: false,
+      }),
+    });
+  } catch {
+    throw new Error(
+      `Ollama is not reachable at ${OLLAMA_BASE_URL}. Start Ollama and pull ${model}.`,
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`Ollama request failed (${response.status}) at ${OLLAMA_BASE_URL}`);

@@ -1,8 +1,10 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export type VectorFilter = {
   classId?: string;
   subjectId?: string;
+  chapterId?: string;
   topicId?: string;
 };
 
@@ -14,39 +16,60 @@ export type RetrievedChunk = {
   score: number;
 };
 
+function toVectorLiteral(embedding: number[]): string {
+  return `[${embedding.join(",")}]`;
+}
+
+function eqIfPresent(column: Prisma.Sql, value?: string): Prisma.Sql | undefined {
+  const id = value?.trim();
+  if (!id) return undefined;
+  return Prisma.sql`${column} = ${id}`;
+}
+
 /**
  * Cosine similarity search over Chunk.embedding (pgvector).
  * Raw SQL only — Prisma has no native vector operators.
  */
 export async function searchSimilarChunks(
   queryEmbedding: number[],
-  filter: VectorFilter = {},
-  limit = 8,
+  filters: VectorFilter = {},
+  topK = 8,
 ): Promise<RetrievedChunk[]> {
-  const vectorLiteral = `[${queryEmbedding.join(",")}]`;
+  const queryVector = toVectorLiteral(queryEmbedding);
+  const limit = topK > 0 ? Math.floor(topK) : 8;
 
-  return prisma.$queryRaw<RetrievedChunk[]>`
+  const whereParts = [
+    Prisma.sql`c.embedding IS NOT NULL`,
+    eqIfPresent(Prisma.sql`s."classId"`, filters.classId),
+    eqIfPresent(Prisma.sql`s.id`, filters.subjectId),
+    eqIfPresent(Prisma.sql`ch.id`, filters.chapterId),
+    eqIfPresent(Prisma.sql`t.id`, filters.topicId),
+  ].filter((part): part is Prisma.Sql => part !== undefined);
+
+  const rows = await prisma.$queryRaw<RetrievedChunk[]>`
     SELECT
       c.id,
       c."topicId",
       c.text,
       c."chunkOrder",
-      1 - (c.embedding <=> ${vectorLiteral}::vector) AS score
+      1 - (c.embedding <=> ${queryVector}::vector) AS score
     FROM "Chunk" c
     INNER JOIN "Topic" t ON t.id = c."topicId"
     INNER JOIN "Chapter" ch ON ch.id = t."chapterId"
     INNER JOIN "Subject" s ON s.id = ch."subjectId"
-    WHERE c.embedding IS NOT NULL
-      AND (${filter.classId ?? null}::text IS NULL OR s."classId" = ${filter.classId ?? null})
-      AND (${filter.subjectId ?? null}::text IS NULL OR s.id = ${filter.subjectId ?? null})
-      AND (${filter.topicId ?? null}::text IS NULL OR t.id = ${filter.topicId ?? null})
-    ORDER BY c.embedding <=> ${vectorLiteral}::vector
+    WHERE ${Prisma.join(whereParts, " AND ")}
+    ORDER BY c.embedding <=> ${queryVector}::vector
     LIMIT ${limit}
   `;
+
+  return rows.map((row) => ({
+    ...row,
+    score: Number(row.score),
+  }));
 }
 
 export async function updateChunkEmbedding(chunkId: string, embedding: number[]) {
-  const vectorLiteral = `[${embedding.join(",")}]`;
+  const vectorLiteral = toVectorLiteral(embedding);
   await prisma.$executeRaw`
     UPDATE "Chunk"
     SET embedding = ${vectorLiteral}::vector,
