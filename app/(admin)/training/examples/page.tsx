@@ -8,7 +8,7 @@ export default function TrainingExamplesPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Training examples</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Review, edit, approve, or reject generated fine-tuning examples.
+          Add training examples manually, then review, edit, approve, or reject them.
         </p>
       </div>
       <TrainingExamplesPanel />

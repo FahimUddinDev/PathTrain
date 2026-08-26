@@ -7,6 +7,8 @@ export type DatasetOption = {
   jsonlPath: string | null;
   exportedAt: Date | null;
   createdAt: Date;
+  filterCriteria?: unknown;
+  log?: string | null;
 };
 
 export type JobSummary = {
@@ -34,6 +36,33 @@ export async function listExportableDatasets(): Promise<DatasetOption[]> {
       jsonlPath: true,
       exportedAt: true,
       createdAt: true,
+      filterCriteria: true,
+      log: true,
+    },
+  });
+}
+
+/** Count approved TrainingExamples matching optional curriculum filters. */
+export async function countApprovedExamples(filters: {
+  classId?: string;
+  subjectId?: string;
+  chapterId?: string;
+}): Promise<number> {
+  const chapterFilter: {
+    id?: string;
+    subjectId?: string;
+    subject?: { classId: string };
+  } = {};
+  if (filters.chapterId) chapterFilter.id = filters.chapterId;
+  if (filters.subjectId) chapterFilter.subjectId = filters.subjectId;
+  if (filters.classId) chapterFilter.subject = { classId: filters.classId };
+
+  return prisma.trainingExample.count({
+    where: {
+      status: "approved",
+      ...(Object.keys(chapterFilter).length > 0
+        ? { topic: { chapter: chapterFilter } }
+        : {}),
     },
   });
 }

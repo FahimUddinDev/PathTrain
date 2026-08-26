@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ExampleReview, type TrainingExampleRow } from "@/components/training/example-review";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { EXAMPLE_TYPES } from "@/lib/training/example-generator";
 
 const ANY = "all";
@@ -27,6 +28,15 @@ const TYPE_LABELS: Record<string, string> = {
 
 type TopicOption = { id: string; name: string };
 
+const emptyForm = {
+  topicId: ANY,
+  type: "qna" as (typeof EXAMPLE_TYPES)[number],
+  instruction: "",
+  input: "",
+  output: "",
+  status: "approved" as "generated" | "approved" | "rejected",
+};
+
 export function TrainingExamplesPanel() {
   const [examples, setExamples] = useState<TrainingExampleRow[]>([]);
   const [topics, setTopics] = useState<TopicOption[]>([]);
@@ -36,21 +46,23 @@ export function TrainingExamplesPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [generateTopicId, setGenerateTopicId] = useState(ANY);
-  const [generateTypes, setGenerateTypes] = useState<string[]>([...EXAMPLE_TYPES]);
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const loadExamples = useCallback(async (signal?: AbortSignal) => {
-    const params = new URLSearchParams();
-    if (typeFilter !== ANY) params.set("type", typeFilter);
-    if (statusFilter !== ANY) params.set("status", statusFilter);
-    if (topicFilter !== ANY) params.set("topicId", topicFilter);
+  const loadExamples = useCallback(
+    async (signal?: AbortSignal) => {
+      const params = new URLSearchParams();
+      if (typeFilter !== ANY) params.set("type", typeFilter);
+      if (statusFilter !== ANY) params.set("status", statusFilter);
+      if (topicFilter !== ANY) params.set("topicId", topicFilter);
 
-    const res = await fetch(`/api/training/examples?${params.toString()}`, { signal });
-    if (!res.ok) throw new Error(`Failed to load examples (${res.status})`);
-    return res.json() as Promise<TrainingExampleRow[]>;
-  }, [typeFilter, statusFilter, topicFilter]);
+      const res = await fetch(`/api/training/examples?${params.toString()}`, { signal });
+      if (!res.ok) throw new Error(`Failed to load examples (${res.status})`);
+      return res.json() as Promise<TrainingExampleRow[]>;
+    },
+    [typeFilter, statusFilter, topicFilter],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -91,43 +103,74 @@ export function TrainingExamplesPanel() {
     setExamples((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
   }
 
-  function toggleGenerateType(type: string) {
-    setGenerateTypes((prev) =>
-      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
-    );
-  }
+  async function handleCreate() {
+    if (form.topicId === ANY) {
+      setFormError("Select a topic");
+      return;
+    }
+    if (!form.instruction.trim() || !form.output.trim()) {
+      setFormError("Instruction and output are required");
+      return;
+    }
 
-  async function handleGenerate() {
-    if (generateTopicId === ANY || generateTypes.length === 0) return;
-    setGenerating(true);
-    setGenerateError(null);
+    setSaving(true);
+    setFormError(null);
     try {
-      const res = await fetch("/api/training/generate-examples", {
+      const res = await fetch("/api/training/examples", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: generateTopicId, types: generateTypes }),
+        body: JSON.stringify({
+          topicId: form.topicId,
+          type: form.type,
+          instruction: form.instruction.trim(),
+          input: form.input,
+          output: form.output.trim(),
+          status: form.status,
+        }),
       });
-      const body = (await res.json()) as { error?: string; examples?: TrainingExampleRow[] };
-      if (!res.ok) throw new Error(body.error ?? `Generation failed (${res.status})`);
+      const body = (await res.json()) as TrainingExampleRow & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `Create failed (${res.status})`);
+
+      setForm((prev) => ({
+        ...emptyForm,
+        topicId: prev.topicId,
+        type: prev.type,
+        status: prev.status,
+      }));
 
       const fresh = await loadExamples();
       setExamples(fresh);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Generation failed");
+      setFormError(err instanceof Error ? err.message : "Create failed");
     } finally {
-      setGenerating(false);
+      setSaving(false);
     }
   }
+
+  const canSave =
+    form.topicId !== ANY &&
+    form.instruction.trim().length > 0 &&
+    form.output.trim().length > 0 &&
+    !saving;
 
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="space-y-4 pt-6">
-          <p className="text-sm font-medium">Generate examples</p>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <CardHeader>
+          <CardTitle>Add example</CardTitle>
+          <CardDescription>
+            Enter instruction / input / output manually. No AI generation.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <Label>Topic</Label>
-              <Select value={generateTopicId} onValueChange={setGenerateTopicId}>
+              <Select
+                value={form.topicId}
+                onValueChange={(topicId) => setForm((prev) => ({ ...prev, topicId }))}
+                disabled={saving}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select topic" />
                 </SelectTrigger>
@@ -144,32 +187,90 @@ export function TrainingExamplesPanel() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Types</Label>
-              <div className="flex flex-wrap gap-2">
-                {EXAMPLE_TYPES.map((type) => {
-                  const selected = generateTypes.includes(type);
-                  return (
-                    <Button
-                      key={type}
-                      type="button"
-                      size="sm"
-                      variant={selected ? "default" : "outline"}
-                      onClick={() => toggleGenerateType(type)}
-                    >
+              <Label>Type</Label>
+              <Select
+                value={form.type}
+                onValueChange={(type) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    type: type as (typeof EXAMPLE_TYPES)[number],
+                  }))
+                }
+                disabled={saving}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EXAMPLE_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
                       {TYPE_LABELS[type] ?? type}
-                    </Button>
-                  );
-                })}
-              </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={form.status}
+                onValueChange={(status) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    status: status as "generated" | "approved" | "rejected",
+                  }))
+                }
+                disabled={saving}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="generated">Generated</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          {generateError ? <p className="text-sm text-destructive">{generateError}</p> : null}
-          <Button
-            type="button"
-            disabled={generating || generateTopicId === ANY || generateTypes.length === 0}
-            onClick={handleGenerate}
-          >
-            {generating ? "Generating…" : "Generate"}
+
+          <div className="space-y-2">
+            <Label htmlFor="new-instruction">Instruction</Label>
+            <Textarea
+              id="new-instruction"
+              value={form.instruction}
+              onChange={(e) => setForm((prev) => ({ ...prev, instruction: e.target.value }))}
+              placeholder="Task shown to the fine-tuned model"
+              rows={2}
+              disabled={saving}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="new-input">Input</Label>
+            <Textarea
+              id="new-input"
+              value={form.input}
+              onChange={(e) => setForm((prev) => ({ ...prev, input: e.target.value }))}
+              placeholder="Optional — leave empty when not needed"
+              rows={3}
+              disabled={saving}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="new-output">Output</Label>
+            <Textarea
+              id="new-output"
+              value={form.output}
+              onChange={(e) => setForm((prev) => ({ ...prev, output: e.target.value }))}
+              placeholder="Ideal model response"
+              rows={4}
+              disabled={saving}
+            />
+          </div>
+
+          {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+          <Button type="button" onClick={() => void handleCreate()} disabled={!canSave}>
+            {saving ? "Saving…" : "Add example"}
           </Button>
         </CardContent>
       </Card>
@@ -231,7 +332,7 @@ export function TrainingExamplesPanel() {
       {!loading && !error && examples.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No examples match the current filters. Generate some above or adjust filters.
+            No examples match the current filters. Add one above or adjust filters.
           </CardContent>
         </Card>
       ) : null}
