@@ -8,7 +8,7 @@ Admin-only RAG + fine-tuning pipeline. Source of truth: `REQUIREMENTS.md`.
 - **UI:** Tailwind CSS + shadcn/ui
 - **DB:** PostgreSQL + pgvector, Prisma ORM
 - **Package manager:** pnpm only (`pnpm`, not npm/yarn)
-- **Dataset gen / eval LLM:** Anthropic or OpenAI API
+- **Dataset authoring:** manual entry in the admin UI — no LLM generation
 - **Playground answers:** Ollama `Qwen2.5-7B-Instruct` at `localhost:11434`
 - **Fine-tune:** Python + Unsloth (QLoRA) in `/training-service` — triggered from Next.js via `child_process` or HTTP API
 
@@ -31,5 +31,5 @@ training-service/    # Unsloth QLoRA (Python, separate from Next.js)
 - Tailwind + shadcn/ui; avoid custom CSS. Names in English.
 - Admin-only. No student-facing features, public signup, or OCR/PDF ingestion.
 - Build order: M0 → M1 → M2 → M3 → M4 (verify RAG) → M5 → M6 → M7 → M8.
-- Secrets in `.env`: `DATABASE_URL`, `ANTHROPIC_API_KEY`, `OLLAMA_BASE_URL`, `OLLAMA_EMBEDDING_MODEL`. Never commit keys.
+- Secrets in `.env`: `DATABASE_URL`, `SESSION_SECRET`, `OLLAMA_BASE_URL`, `OLLAMA_EMBEDDING_MODEL`. Never commit keys.
 - Training jobs are async (queue + poll). Do not block an API route on a full train run.

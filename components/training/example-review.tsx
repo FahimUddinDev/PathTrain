@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -23,9 +24,12 @@ export type TrainingExampleRow = {
 type ExampleReviewProps = {
   example: TrainingExampleRow;
   onUpdated: (example: TrainingExampleRow) => void;
+  onDeleted: (id: string) => void;
+  selected: boolean;
+  onSelectedChange: (selected: boolean) => void;
 };
 
-type PendingAction = "save" | "approve" | "reject" | null;
+type PendingAction = "save" | "approve" | "reject" | "delete" | null;
 
 const STATUS_BADGE: Record<string, string> = {
   generated: "bg-amber-100 text-amber-900 hover:bg-amber-100",
@@ -49,11 +53,18 @@ async function patchExample(
   return res.json() as Promise<TrainingExampleRow>;
 }
 
-export function ExampleReview({ example, onUpdated }: ExampleReviewProps) {
+export function ExampleReview({
+  example,
+  onUpdated,
+  onDeleted,
+  selected,
+  onSelectedChange,
+}: ExampleReviewProps) {
   const [instruction, setInstruction] = useState(example.instruction);
   const [input, setInput] = useState(example.input);
   const [output, setOutput] = useState(example.output);
   const [pending, setPending] = useState<PendingAction>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const dirty =
@@ -79,14 +90,38 @@ export function ExampleReview({ example, onUpdated }: ExampleReviewProps) {
     }
   }
 
+  async function handleDelete() {
+    setPending("delete");
+    setError(null);
+    try {
+      const res = await fetch(`/api/training/examples/${example.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `Delete failed (${res.status})`);
+      }
+      onDeleted(example.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+      setPending(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0 pb-3">
-        <div className="space-y-1">
-          <CardTitle className="text-base font-medium">{example.topic.name}</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            {new Date(example.createdAt).toLocaleString()}
-          </p>
+        <div className="flex items-start gap-3">
+          <Checkbox
+            className="mt-1"
+            checked={selected}
+            onCheckedChange={(value) => onSelectedChange(value === true)}
+            aria-label={`Select example for ${example.topic.name}`}
+          />
+          <div className="space-y-1">
+            <CardTitle className="text-base font-medium">{example.topic.name}</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {new Date(example.createdAt).toLocaleString()}
+            </p>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Badge variant="outline" className="capitalize">
@@ -151,6 +186,39 @@ export function ExampleReview({ example, onUpdated }: ExampleReviewProps) {
           >
             {pending === "reject" ? "Rejecting…" : "Reject"}
           </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {confirmingDelete ? (
+              <>
+                <span className="text-sm text-muted-foreground">Delete permanently?</span>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={pending !== null}
+                  onClick={() => void handleDelete()}
+                >
+                  {pending === "delete" ? "Deleting…" : "Yes, delete"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending !== null}
+                  onClick={() => setConfirmingDelete(false)}
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className="text-destructive"
+                disabled={pending !== null}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
         </div>
       </CardContent>
     </Card>

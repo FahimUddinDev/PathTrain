@@ -101,8 +101,10 @@ export function TrainingDatasetsPanel({
   const [approvedCount, setApprovedCount] = useState<number | null>(null);
   const [counting, setCounting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [training, setTraining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastExport, setLastExport] = useState<DatasetRow | null>(null);
+  const [startedJobId, setStartedJobId] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -211,6 +213,7 @@ export function TrainingDatasetsPanel({
     setExporting(true);
     setError(null);
     setLastExport(null);
+    setStartedJobId(null);
 
     try {
       const res = await fetch("/api/training/dataset/export", {
@@ -246,10 +249,65 @@ export function TrainingDatasetsPanel({
     }
   }
 
+  async function handleExportAndTrain() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Dataset name is required");
+      return;
+    }
+
+    setTraining(true);
+    setError(null);
+    setLastExport(null);
+    setStartedJobId(null);
+
+    try {
+      const res = await fetch("/api/training/dataset/export-and-train", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: trimmed,
+          classId: optionalId(classId),
+          subjectId: optionalId(subjectId),
+          chapterId: optionalId(chapterId),
+        }),
+      });
+      const body = (await res.json()) as {
+        dataset?: DatasetRow;
+        job?: { id: string };
+        error?: string;
+      };
+      if (!res.ok || !body.dataset || !body.job) {
+        throw new Error(body.error ?? `Export and train failed (${res.status})`);
+      }
+
+      const row: DatasetRow = {
+        id: body.dataset.id,
+        name: body.dataset.name,
+        exampleCount: body.dataset.exampleCount,
+        jsonlPath: body.dataset.jsonlPath,
+        exportedAt: body.dataset.exportedAt,
+        createdAt: body.dataset.exportedAt ?? new Date().toISOString(),
+        filterCriteria: {
+          classId: optionalId(classId),
+          subjectId: optionalId(subjectId),
+          chapterId: optionalId(chapterId),
+        },
+      };
+      setDatasets((prev) => [row, ...prev]);
+      setLastExport(row);
+      setStartedJobId(body.job.id);
+      setName("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export and train failed");
+    } finally {
+      setTraining(false);
+    }
+  }
+
+  const busy = exporting || training;
   const canExport =
-    name.trim().length > 0 &&
-    !exporting &&
-    (approvedCount === null || approvedCount > 0);
+    name.trim().length > 0 && !busy && (approvedCount === null || approvedCount > 0);
 
   return (
     <div className="space-y-6">
@@ -269,7 +327,7 @@ export function TrainingDatasetsPanel({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Class 6 Science — pollination"
-              disabled={exporting}
+              disabled={busy}
             />
           </div>
 
@@ -279,7 +337,7 @@ export function TrainingDatasetsPanel({
               value={classId}
               options={classes}
               anyLabel="All classes"
-              disabled={exporting || loadingClasses}
+              disabled={busy || loadingClasses}
               loading={loadingClasses}
               onChange={setClassId}
             />
@@ -291,7 +349,7 @@ export function TrainingDatasetsPanel({
               locked={classId === ANY}
               lockedLabel="Select a class first"
               emptyLabel="No subjects"
-              disabled={exporting || classId === ANY || loadingSubjects}
+              disabled={busy || classId === ANY || loadingSubjects}
               loading={loadingSubjects}
               onChange={setSubjectId}
             />
@@ -303,7 +361,7 @@ export function TrainingDatasetsPanel({
               locked={subjectId === ANY}
               lockedLabel="Select a subject first"
               emptyLabel="No chapters"
-              disabled={exporting || subjectId === ANY || loadingChapters}
+              disabled={busy || subjectId === ANY || loadingChapters}
               loading={loadingChapters}
               onChange={setChapterId}
             />
@@ -320,6 +378,14 @@ export function TrainingDatasetsPanel({
             <Button type="button" onClick={() => void handleExport()} disabled={!canExport}>
               {exporting ? "Exporting…" : "Export JSONL"}
             </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void handleExportAndTrain()}
+              disabled={!canExport}
+            >
+              {training ? "Starting…" : "Export & start training"}
+            </Button>
           </div>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -335,15 +401,25 @@ export function TrainingDatasetsPanel({
                   {lastExport.jsonlPath}
                 </p>
               ) : null}
-              <p className="mt-2">
-                <Link
-                  href="/training/jobs"
-                  className="underline hover:text-foreground"
-                >
-                  Start a training job
-                </Link>{" "}
-                with this dataset.
-              </p>
+              {startedJobId ? (
+                <p className="mt-2">
+                  Training job queued.{" "}
+                  <Link
+                    href={`/training/jobs?job=${startedJobId}`}
+                    className="underline hover:text-foreground"
+                  >
+                    Follow its progress
+                  </Link>
+                  .
+                </p>
+              ) : (
+                <p className="mt-2">
+                  <Link href="/training/jobs" className="underline hover:text-foreground">
+                    Start a training job
+                  </Link>{" "}
+                  with this dataset.
+                </p>
+              )}
             </div>
           ) : null}
         </CardContent>

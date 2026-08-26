@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { PlaygroundModelKey, PlaygroundModels } from "@/lib/llm/models";
+import type { RegressionNoteSummary } from "@/lib/playground/regression-types";
+import { VERDICT_LABELS } from "@/lib/playground/regression-types";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/rag/prompt-builder";
 
 const ANY = "all";
@@ -71,6 +73,10 @@ export function PlaygroundPanel({ models }: PlaygroundPanelProps) {
   const [compareMode, setCompareMode] = useState(false);
   const [regressionVerdict, setRegressionVerdict] = useState<RegressionVerdict>("unset");
   const [regressionNotes, setRegressionNotes] = useState("");
+  const [savedNotes, setSavedNotes] = useState<RegressionNoteSummary[]>([]);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteSaved, setNoteSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction>(null);
 
@@ -156,6 +162,17 @@ export function PlaygroundPanel({ models }: PlaygroundPanelProps) {
       });
     return () => controller.abort();
   }, [chapterId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/playground/regressions", { signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ notes?: RegressionNoteSummary[] }>) : null))
+      .then((body) => {
+        if (!controller.signal.aborted && body) setSavedNotes(body.notes ?? []);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   function filterPayload() {
     return {
@@ -370,6 +387,51 @@ export function PlaygroundPanel({ models }: PlaygroundPanelProps) {
       setError(err instanceof Error ? err.message : "Compare failed");
     } finally {
       setPending(null);
+    }
+  }
+
+  async function saveRegressionNote() {
+    if (regressionVerdict === "unset") {
+      setNoteError("Pick a verdict before saving.");
+      return;
+    }
+
+    setSavingNote(true);
+    setNoteError(null);
+    setNoteSaved(false);
+    try {
+      const response = await fetch("/api/playground/regressions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: query.trim(),
+          topicId: optionalId(topicId),
+          baseModel: models.base.ollamaModel,
+          fineTunedModel: models.fineTuned.ollamaModel,
+          baseAnswer: compareBaseAnswer ?? "",
+          fineTunedAnswer: compareFineTunedAnswer ?? "",
+          verdict: regressionVerdict,
+          notes: regressionNotes.trim() || undefined,
+        }),
+      });
+      const data = await readJson(response);
+      if (!response.ok) {
+        setNoteError(errorMessage(data, "Failed to save regression note"));
+        return;
+      }
+
+      setNoteSaved(true);
+      setRegressionNotes("");
+      setRegressionVerdict("unset");
+      const listed = await fetch("/api/playground/regressions");
+      if (listed.ok) {
+        const body = (await listed.json()) as { notes?: RegressionNoteSummary[] };
+        setSavedNotes(body.notes ?? []);
+      }
+    } catch (err) {
+      setNoteError(err instanceof Error ? err.message : "Failed to save regression note");
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -605,9 +667,23 @@ export function PlaygroundPanel({ models }: PlaygroundPanelProps) {
                       placeholder="e.g. Topic: Pollination — fine-tuned explains insect role better; still weak on MCQ distractors."
                       value={regressionNotes}
                       onChange={(event) => setRegressionNotes(event.target.value)}
-                      disabled={busy}
+                      disabled={busy || savingNote}
                     />
                   </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    disabled={busy || savingNote || regressionVerdict === "unset"}
+                    onClick={() => void saveRegressionNote()}
+                  >
+                    {savingNote ? "Saving…" : "Save regression note"}
+                  </Button>
+                  {noteError ? (
+                    <span className="text-sm text-destructive">{noteError}</span>
+                  ) : noteSaved ? (
+                    <span className="text-sm text-muted-foreground">Saved.</span>
+                  ) : null}
                 </div>
               </div>
             </CardContent>
@@ -646,7 +722,49 @@ export function PlaygroundPanel({ models }: PlaygroundPanelProps) {
           </Card>
         </div>
       )}
+
+      {savedNotes.length > 0 ? <SavedRegressionNotes notes={savedNotes} /> : null}
     </div>
+  );
+}
+
+/** Kept outside the compare branch so past verdicts stay readable even when no
+ *  fine-tuned model is registered and Compare cannot run. */
+function SavedRegressionNotes({ notes }: { notes: RegressionNoteSummary[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Saved regression notes</CardTitle>
+        <CardDescription>
+          {notes.length} most recent verdict{notes.length === 1 ? "" : "s"} recorded from
+          base vs fine-tuned comparisons.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {notes.map((note) => (
+          <div key={note.id} className="rounded-lg border p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{VERDICT_LABELS[note.verdict] ?? note.verdict}</Badge>
+              {note.topicName ? (
+                <span className="text-xs text-muted-foreground">{note.topicName}</span>
+              ) : null}
+              <span className="text-xs text-muted-foreground">
+                {new Date(note.createdAt).toLocaleString()}
+              </span>
+            </div>
+            <p className="text-sm font-medium">{note.query}</p>
+            {note.notes ? (
+              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                {note.notes}
+              </p>
+            ) : null}
+            <p className="mt-2 font-mono text-xs text-muted-foreground">
+              {note.baseModel} vs {note.fineTunedModel}
+            </p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

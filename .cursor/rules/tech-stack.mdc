@@ -13,7 +13,7 @@ Use this stack only. Do not swap frameworks, ORMs, UI kits, or package managers.
 | DB | PostgreSQL + pgvector |
 | ORM | Prisma |
 | UI | Tailwind CSS + shadcn/ui |
-| Dataset gen / eval | Anthropic or OpenAI API |
+| Dataset authoring | Manual entry in the admin UI — no LLM generation |
 | Local RAG model | Ollama `Qwen2.5-7B-Instruct` (`localhost:11434`) |
 | Fine-tune | Python + Unsloth QLoRA in `/training-service` |
 | Packages | pnpm |
@@ -30,6 +30,6 @@ npx create-next-app   # unless scaffolding M0 with pnpm
 ```
 
 - Add shadcn components with the project's shadcn CLI (`pnpm dlx shadcn@latest add …`). Avoid custom CSS.
-- Call Ollama for Playground answers; use Anthropic/OpenAI only for training-example generation and evaluation.
+- Call Ollama for Playground answers. Training examples are written by hand; do not reintroduce a cloud LLM generation path.
 - Trigger Unsloth from Next.js via `child_process` or HTTP to `/training-service` — never inline training in a Next.js route handler.
-- Keep `DATABASE_URL`, `ANTHROPIC_API_KEY`, `OLLAMA_BASE_URL`, `OLLAMA_EMBEDDING_MODEL` in `.env`. Names in English.
+- Keep `DATABASE_URL`, `SESSION_SECRET`, `OLLAMA_BASE_URL`, `OLLAMA_EMBEDDING_MODEL` in `.env`. Names in English.

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
-import { EXAMPLE_TYPES } from "@/lib/training/example-generator";
+import { EXAMPLE_STATUSES, EXAMPLE_TYPES } from "@/lib/training/example-types";
 
 const createSchema = z.object({
   topicId: z.string().min(1),
@@ -9,7 +9,7 @@ const createSchema = z.object({
   instruction: z.string().min(1),
   input: z.string().optional().default(""),
   output: z.string().min(1),
-  status: z.enum(["generated", "approved", "rejected"]).optional().default("generated"),
+  status: z.enum(EXAMPLE_STATUSES).optional().default("generated"),
 });
 
 export async function GET(request: Request) {

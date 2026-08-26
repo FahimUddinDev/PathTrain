@@ -74,8 +74,29 @@ export async function getActiveTrainingJob(): Promise<JobSummary | null> {
     orderBy: { createdAt: "desc" },
     include: { dataset: { select: { id: true, name: true } } },
   });
-  if (!job) return null;
+  return job ? toJobSummary(job) : null;
+}
 
+/** A specific job, so `/training/jobs?job=<id>` can open the one just started. */
+export async function getTrainingJobById(id: string): Promise<JobSummary | null> {
+  const job = await prisma.trainingJob.findUnique({
+    where: { id },
+    include: { dataset: { select: { id: true, name: true } } },
+  });
+  return job ? toJobSummary(job) : null;
+}
+
+function toJobSummary(job: {
+  id: string;
+  datasetId: string;
+  baseModel: string;
+  status: string;
+  adapterPath: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  createdAt: Date;
+  dataset: { id: string; name: string };
+}): JobSummary {
   const row = job as typeof job & { modelTag?: string | null };
   return {
     id: row.id,

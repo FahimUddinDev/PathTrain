@@ -65,7 +65,7 @@ model Chunk {
   text            String                      @db.Text
   chunkOrder      Int
   tokenCount      Int
-  page            Int?
+  page            Int? // stays null: topic text is pasted manually and carries no page numbers
   editable        Boolean                     @default(true)
   embeddingStatus String                      @default("pending") // pending | embedded | failed
   embedding       Unsupported("vector(768)")?
@@ -118,4 +118,21 @@ model TrainingJob {
   createdAt   DateTime        @default(now())
 
   @@index([datasetId])
+}
+
+/// A saved base-vs-fine-tuned comparison from the Playground.
+/// topicId is not a relation: a note stays meaningful after its topic is deleted.
+model RegressionNote {
+  id              String   @id @default(cuid())
+  query           String   @db.Text
+  topicId         String?
+  baseModel       String
+  fineTunedModel  String
+  baseAnswer      String   @db.Text
+  fineTunedAnswer String   @db.Text
+  verdict         String // better | worse | same | mixed
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+
+  @@index([topicId])
 }

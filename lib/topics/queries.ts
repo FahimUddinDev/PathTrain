@@ -21,13 +21,16 @@ export type TopicWithChunks = {
     name: string;
     subject: { name: string; class: { name: string } };
   };
-  chunks: {
-    id: string;
-    text: string;
-    chunkOrder: number;
-    tokenCount: number;
-    page: number | null;
-  }[];
+  chunks: TopicChunk[];
+};
+
+export type TopicChunk = {
+  id: string;
+  text: string;
+  chunkOrder: number;
+  tokenCount: number;
+  page: number | null;
+  embeddingStatus: string;
 };
 
 export function formatTopicPath(topic: {
@@ -89,6 +92,7 @@ export async function getTopicWithChunks(id: string): Promise<TopicWithChunks | 
       chunkOrder: chunk.chunkOrder,
       tokenCount: chunk.tokenCount,
       page: readNullableNumber(chunk, "page"),
+      embeddingStatus: chunk.embeddingStatus,
     })),
   };
 }

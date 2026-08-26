@@ -2,7 +2,7 @@
 
 **Product:** Admin-only RAG + Fine-tuning Content Pipeline  
 **Document type:** Requirements specification (derived from milestone plan)  
-**Status:** Draft — Milestone 0 not started  
+**Status:** M0–M8 implemented. Fine-tuning itself is unverified — it needs a CUDA host (see [training-service/README.md](training-service/README.md)).  
 **Audience:** Implementation, review, and acceptance
 
 ---
@@ -64,7 +64,7 @@ This document is the source of truth for what to build, in what order, and when 
 | DB | PostgreSQL + pgvector extension |
 | ORM | Prisma |
 | Package manager | pnpm |
-| LLM (dataset gen + evaluation) | Anthropic or OpenAI API |
+| Dataset authoring | Manual entry in the admin UI — no LLM generation (see §6) |
 | Local model (RAG answers) | Ollama `Qwen2.5-7B-Instruct` at `localhost:11434` |
 | Fine-tune | Python + Unsloth (QLoRA) in `/training-service`, triggered from Next.js via `child_process` or HTTP API |
 | Auth | Simple admin login (session or equivalent) |
@@ -289,22 +289,26 @@ Until M5, `/api/test/chat` may use a temporary cloud LLM if needed for M4 verifi
 
 ---
 
-### Milestone 6 — Training Dataset Generation
+### Milestone 6 — Training Dataset Authoring
 
-Generate **five** example types from Topic text so the model learns question generation, marking, and multi-way explanation — not only Q&A.
+Author **five** example types from Topic text so the model learns question generation, marking, and multi-way explanation — not only Q&A.
+
+> **Manual-mode decision.** Examples are written by hand in the admin UI. The cloud-LLM
+> generation path was removed rather than built, so FR-M6-01/07/08 are satisfied by their
+> manual equivalents below. Dataset quality is owned by the admin, not by a generator.
 
 | ID | Requirement | Priority |
 |---|---|---|
-| FR-M6-01 | `POST /api/training/generate-examples` generates synthetic examples for a Topic via Anthropic or OpenAI API. | P0 |
-| FR-M6-02 | Question types: concept explanation (`qna`), MCQ (`mcq`), srijonsil (`srijonsil`) — each with its own generation pattern. | P0 |
+| FR-M6-01 | `POST /api/training/examples` persists a hand-written example for a Topic. *(Manual mode: replaces the removed generate-examples endpoint.)* | P0 |
+| FR-M6-02 | Question types: concept explanation (`qna`), MCQ (`mcq`), srijonsil (`srijonsil`) — each selectable when authoring. | P0 |
 | FR-M6-03 | **Answer-evaluation examples** (`evaluation`): question + sample student answer (correct / partial / wrong), score, mistake explanation, improvement tips. | P0 |
 | FR-M6-04 | **Multi-explanation examples** (`multi_explain`): same topic explained 2–3 ways (simple language, analogy, real-life example). | P0 |
 | FR-M6-05 | Persist `TrainingExample` with `type` and status `generated`. | P0 |
-| FR-M6-06 | Review/Edit UI: admin edits, approves, or rejects each example. | P0 |
-| FR-M6-07 | Bulk generate by selecting multiple Topics and/or Chapters. | P0 |
-| FR-M6-08 | Selecting a Topic auto-generates **all five** types. | P0 |
+| FR-M6-06 | Review/Edit UI: admin edits, approves, rejects, or deletes each example. | P0 |
+| FR-M6-07 | Bulk approve/reject via checkbox selection, backed by `POST /api/training/examples/bulk`. *(Manual mode: replaces bulk generation.)* | P0 |
+| FR-M6-08 | Selecting a Topic shows a five-type coverage indicator marking which types exist and which are still missing. *(Manual mode: replaces auto-generating all five.)* | P0 |
 
-**Done when:** selecting a Topic auto-generates all 5 types and the admin can approve them.
+**Done when:** a Topic can reach all 5 types, coverage is visible, and the admin can approve them in bulk.
 
 #### 6.1 Example types
 
@@ -458,7 +462,10 @@ Minimum configuration (names may be adjusted, purpose is required):
 | `OLLAMA_MODEL` | Base instruct model name |
 | `OLLAMA_FINETUNED_MODEL` | Fine-tuned Ollama tag (M8) |
 | `OLLAMA_EMBEDDING_MODEL` | Local embedding model (default `nomic-embed-text`, 768-d) |
-| `ANTHROPIC_API_KEY` | Dataset generation and evaluation |
+| `SESSION_SECRET` | HMAC key for the admin session cookie (falls back to `ADMIN_PASSWORD`) |
+| `PYTHON_PATH` | Interpreter used to spawn `training-service/train.py` |
+
+Setup steps for each of these are in [docs/SETUP.md](docs/SETUP.md).
 
 ---
 
@@ -474,7 +481,7 @@ M0 → M1 → M2 → M3 → M4     RAG working end-to-end (no fine-tune)
 |---|---|
 | After M4 | Verify RAG MVP (correct chunk + relevant answer) before M6. |
 | After M5 | Confirm Playground answers are from Ollama, not a leftover cloud path. |
-| After M6 | All five example types exist and can be approved. |
+| After M6 | All five example types exist and can be approved. Coverage is visible per Topic. |
 | After M7 | JSONL + job start + status in one admin flow. |
 | After M8 | Base vs fine-tuned comparison is visible in Playground. |
 
@@ -482,15 +489,16 @@ M0 → M1 → M2 → M3 → M4     RAG working end-to-end (no fine-tune)
 
 ## 12. Acceptance checklist (product-level)
 
-- [ ] Admin can log in and use a sidebar shell.
-- [ ] Class → Subject → Chapter cascade works.
-- [ ] Pasted topic text is chunked (300–500 tokens, topic prefix) and stored.
-- [ ] Chunks are embedded in pgvector with curriculum metadata.
-- [ ] Playground retrieves the right chunk and shows a relevant RAG answer.
-- [ ] Full AI answer is served by local Ollama.
-- [ ] A Topic yields five approved-capable example types, including evaluation and multi-explain.
-- [ ] Approved examples export to instruction JSONL and can start a training job with visible status/logs.
-- [x] Playground compares base vs fine-tuned answers side by side, with regression notes.
+- [x] Admin can log in and use a sidebar shell.
+- [x] Class → Subject → Chapter cascade works, including edit and cascade-aware delete.
+- [x] Pasted topic text is chunked (300–500 tokens, topic prefix) and stored, previewable before submit and editable after.
+- [x] Chunks are embedded in pgvector with curriculum metadata, with per-chunk failure state.
+- [x] Playground retrieves the right chunk and shows a relevant RAG answer.
+- [x] Full AI answer is served by local Ollama.
+- [x] A Topic yields five approved-capable example types, including evaluation and multi-explain.
+- [x] Approved examples export to instruction JSONL and can start a training job with visible status/logs.
+- [x] Playground compares base vs fine-tuned answers side by side, with regression notes persisted.
+- [ ] A fine-tune actually completes — blocked on CUDA hardware, not on app code.
 
 ---
 

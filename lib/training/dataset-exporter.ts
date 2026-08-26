@@ -2,23 +2,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Prisma, TrainingDataset } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { buildJsonlBody } from "@/lib/training/jsonl";
+
+export type { JsonlRecord } from "@/lib/training/jsonl";
 
 export type ExportFilters = {
   classId?: string;
   subjectId?: string;
   chapterId?: string;
-};
-
-export type JsonlRecord = {
-  instruction: string;
-  input: string;
-  output: string;
-  metadata: {
-    class: string;
-    subject: string;
-    topic: string;
-    type: string;
-  };
 };
 
 function sanitizeFilename(name: string): string {
@@ -50,36 +41,6 @@ function buildWhere(filters: ExportFilters): Prisma.TrainingExampleWhereInput {
     ...(Object.keys(chapterFilter).length > 0
       ? { topic: { chapter: chapterFilter } }
       : {}),
-  };
-}
-
-function toJsonlRecord(
-  example: {
-    instruction: string;
-    input: string;
-    output: string;
-    type: string;
-    topic: {
-      name: string;
-      chapter: {
-        subject: {
-          name: string;
-          class: { name: string };
-        };
-      };
-    };
-  },
-): JsonlRecord {
-  return {
-    instruction: example.instruction,
-    input: example.input,
-    output: example.output,
-    metadata: {
-      class: example.topic.chapter.subject.class.name,
-      subject: example.topic.chapter.subject.name,
-      topic: example.topic.name,
-      type: example.type,
-    },
   };
 }
 
@@ -143,8 +104,7 @@ export async function exportApprovedDataset(
     );
   }
 
-  const records = examples.map(toJsonlRecord);
-  const body = `${records.map((row) => JSON.stringify(row)).join("\n")}\n`;
+  const body = buildJsonlBody(examples);
 
   const dir = path.join(process.cwd(), "data", "exports");
   await mkdir(dir, { recursive: true });
@@ -157,14 +117,14 @@ export async function exportApprovedDataset(
   const log = buildLog({
     name: trimmedName,
     filters: compact,
-    exampleCount: records.length,
+    exampleCount: examples.length,
     jsonlPath,
   });
 
   const data = {
     name: trimmedName,
     filterCriteria: compact as Prisma.InputJsonValue,
-    exampleCount: records.length,
+    exampleCount: examples.length,
     jsonlPath,
     log,
     exportedAt: new Date(),

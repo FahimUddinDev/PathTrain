@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { updateChunkEmbedding } from "@/lib/db/vector";
+import { markChunkEmbeddingFailed, updateChunkEmbedding } from "@/lib/db/vector";
 
 const EMBEDDING_DIM = 768;
 const EMBED_CONCURRENCY = 6;
@@ -114,9 +114,73 @@ async function markTopicFailed(topicId: string, error: unknown) {
   await updateTopicStatus(topicId, "failed", failureMessage(error));
 }
 
+type EmbedPass = {
+  embedded: number;
+  failed: number;
+  firstError: string | null;
+};
+
 /**
- * Embed pending (and previously failed) chunks for a topic, write vectors
- * via pgvector raw SQL, then set Topic.status to embedded.
+ * Embed each chunk independently so one bad chunk does not discard the
+ * vectors of the chunks that succeeded alongside it.
+ */
+async function embedChunksIndividually(
+  chunks: { id: string; text: string }[],
+): Promise<EmbedPass> {
+  let embedded = 0;
+  let failed = 0;
+  let firstError: string | null = null;
+
+  for (let offset = 0; offset < chunks.length; offset += EMBED_CONCURRENCY) {
+    const slice = chunks.slice(offset, offset + EMBED_CONCURRENCY);
+    const outcomes = await Promise.allSettled(slice.map((chunk) => embedOneText(chunk.text)));
+
+    for (let i = 0; i < outcomes.length; i++) {
+      const outcome = outcomes[i];
+      if (outcome.status === "fulfilled") {
+        await updateChunkEmbedding(slice[i].id, outcome.value);
+        embedded += 1;
+      } else {
+        await markChunkEmbeddingFailed(slice[i].id);
+        failed += 1;
+        firstError ??= failureMessage(outcome.reason);
+      }
+    }
+  }
+
+  return { embedded, failed, firstError };
+}
+
+/** Derive Topic.status from the chunks rather than from the last pass alone. */
+async function settleTopicStatus(topicId: string, firstError: string | null) {
+  const [failedChunks, pendingChunks] = await Promise.all([
+    prisma.chunk.count({ where: { topicId, embeddingStatus: "failed" } }),
+    prisma.chunk.count({ where: { topicId, embeddingStatus: "pending" } }),
+  ]);
+
+  if (failedChunks > 0) {
+    const detail = firstError ?? "Embedding failed";
+    await updateTopicStatus(
+      topicId,
+      "failed",
+      `${failedChunks} chunk${failedChunks === 1 ? "" : "s"} failed to embed. ${detail}`,
+    );
+    return;
+  }
+
+  if (pendingChunks > 0) {
+    await updateTopicStatus(topicId, "chunked", null);
+    return;
+  }
+
+  await updateTopicStatus(topicId, "embedded", null);
+}
+
+/**
+ * Embed pending (and previously failed) chunks for a topic and write vectors
+ * via pgvector raw SQL. Only chunks that still need work are touched, so an
+ * edited chunk re-embeds on its own. Topic.status is derived from the chunks
+ * afterwards: failed if any chunk failed, embedded once all are done.
  */
 export async function embedTopicChunks(topicId: string): Promise<EmbedTopicResult> {
   const topic = await prisma.topic.findUnique({
@@ -149,20 +213,21 @@ export async function embedTopicChunks(topicId: string): Promise<EmbedTopicResul
     return { topicId, embedded: 0, failed: 0 };
   }
 
-  let embedded = 0;
-
+  let pass: EmbedPass;
   try {
-    const vectors = await embedTexts(chunks.map((chunk) => chunk.text));
-    for (let i = 0; i < chunks.length; i++) {
-      await updateChunkEmbedding(chunks[i].id, vectors[i]);
-      embedded += 1;
-    }
-
-    await updateTopicStatus(topicId, "embedded", null);
+    pass = await embedChunksIndividually(chunks);
   } catch (error) {
     await markTopicFailed(topicId, error);
     throw error;
   }
 
-  return { topicId, embedded, failed: 0 };
+  await settleTopicStatus(topicId, pass.firstError);
+
+  // A total failure is almost always Ollama being down, so surface it to the
+  // caller. Partial failures are reported through Topic.failureReason instead.
+  if (pass.embedded === 0 && pass.failed > 0) {
+    throw new Error(pass.firstError ?? "Embedding failed");
+  }
+
+  return { topicId, embedded: pass.embedded, failed: pass.failed };
 }

@@ -2,7 +2,7 @@ This project is a Next.js monolith — an admin-only tool that:
 1. Takes book topic text as input (Class > Subject > Chapter > Topic hierarchy)
 2. Chunks the text and embeds it into pgvector (for RAG)
 3. Lets you test RAG retrieval + AI answers in a playground
-4. Generates/reviews/exports synthetic Q&A datasets for fine-tuning
+4. Lets you hand-write, review, and export Q&A datasets for fine-tuning
 5. Triggers and tracks training jobs (actual training runs in a separate Python service)
 
 Rules:
@@ -13,4 +13,4 @@ Rules:
 - UI with Tailwind + shadcn/ui, avoid custom CSS
 - Code/variable names always in English
 - No student-facing features for now — admin/internal tool only
-- Keep DATABASE_URL, ANTHROPIC_API_KEY, OLLAMA_BASE_URL, OLLAMA_EMBEDDING_MODEL in .env
+- Keep DATABASE_URL, SESSION_SECRET, OLLAMA_BASE_URL, OLLAMA_EMBEDDING_MODEL in .env

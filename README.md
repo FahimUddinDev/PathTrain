@@ -8,20 +8,38 @@ Admin-only RAG + fine-tuning content pipeline. See `REQUIREMENTS.md` and `AGENTS
 - Tailwind + shadcn/ui
 - PostgreSQL + pgvector, Prisma
 - pnpm
-- Anthropic / OpenAI (dataset generation)
-- Ollama `Qwen2.5-7B-Instruct` (local RAG)
+- Ollama `Qwen2.5-7B-Instruct` (local RAG) + `nomic-embed-text` (embeddings)
 - Python + Unsloth QLoRA in `/training-service`
 
-## Setup (Milestone 0)
+Training examples are written by hand in the admin UI — there is no LLM generation step.
 
-1. Copy `.env.example` to `.env` and set `DATABASE_URL` plus `ADMIN_PASSWORD`.
-2. PostgreSQL must have the [pgvector](https://github.com/pgvector/pgvector) extension available.
-3. Install and migrate:
+## Setup
+
+Full instructions, including pgvector and Ollama, are in [docs/SETUP.md](docs/SETUP.md).
+The short version:
 
 ```bash
+cp .env.example .env         # set DATABASE_URL and ADMIN_PASSWORD
+ollama serve                 # then: ollama pull qwen2.5:7b-instruct && ollama pull nomic-embed-text
 pnpm install
-pnpm prisma migrate dev
+pnpm prisma migrate deploy
 pnpm dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) and sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+Open [http://localhost:3000](http://localhost:3000) and sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+
+## Checks
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test          # `pnpm test:watch` while developing
+```
+
+Tests cover the two behaviours most likely to regress silently: the chunker's 300–500 token
+range (NFR-04) and byte-for-byte deterministic JSONL export (NFR-06).
+
+## Fine-tuning
+
+Training runs in [`training-service/`](training-service/README.md) and **requires an NVIDIA
+GPU with CUDA**. Everything up to and including the JSONL export works without one.
