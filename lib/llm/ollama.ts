@@ -1,5 +1,10 @@
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:7b-instruct";
+function getOllamaBaseUrl(): string {
+  return process.env.OLLAMA_BASE_URL?.trim() || "http://localhost:11434";
+}
+
+function getOllamaModel(): string {
+  return process.env.OLLAMA_MODEL?.trim() || "qwen2.5:7b-instruct";
+}
 
 export type OllamaGenerateInput = {
   prompt?: string;
@@ -12,19 +17,21 @@ type OllamaGenerateChunk = {
   done?: boolean;
 };
 
-function ollamaUnreachableError(model: string): Error {
+function ollamaUnreachableError(baseUrl: string, model: string): Error {
   return new Error(
-    `Ollama is not reachable at ${OLLAMA_BASE_URL}. Start Ollama and pull ${model}.`,
+    `Ollama is not reachable at ${baseUrl}. Start Ollama and pull ${model}.`,
   );
 }
 
-function ollamaRequestFailedError(status: number): Error {
-  return new Error(`Ollama request failed (${status}) at ${OLLAMA_BASE_URL}`);
+function ollamaRequestFailedError(baseUrl: string, status: number, detail?: string): Error {
+  return new Error(
+    `Ollama request failed (${status}) at ${baseUrl}${detail ? `: ${detail}` : ""}`,
+  );
 }
 
 function generateRequestBody(input: OllamaGenerateInput, stream: boolean) {
   return {
-    model: input.model ?? OLLAMA_MODEL,
+    model: input.model ?? getOllamaModel(),
     prompt: input.prompt ?? "",
     ...(input.system ? { system: input.system } : {}),
     stream,
@@ -32,16 +39,32 @@ function generateRequestBody(input: OllamaGenerateInput, stream: boolean) {
 }
 
 async function postGenerate(input: OllamaGenerateInput, stream: boolean): Promise<Response> {
-  const model = input.model ?? OLLAMA_MODEL;
+  const model = input.model ?? getOllamaModel();
+  const baseUrl = getOllamaBaseUrl();
+  const body = JSON.stringify(generateRequestBody(input, stream));
 
+  // Try configured base URL first
   try {
-    return await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+    return await fetch(`${baseUrl}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(generateRequestBody(input, stream)),
+      body,
     });
-  } catch {
-    throw ollamaUnreachableError(model);
+  } catch (error) {
+    // If localhost failed on Windows, fallback to 127.0.0.1
+    if (baseUrl.includes("localhost")) {
+      const fallbackUrl = baseUrl.replace("localhost", "127.0.0.1");
+      try {
+        return await fetch(`${fallbackUrl}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+      } catch {
+        // Ignored, throw primary error below
+      }
+    }
+    throw ollamaUnreachableError(baseUrl, model);
   }
 }
 
@@ -66,7 +89,7 @@ export async function generateWithOllama(input: OllamaGenerateInput): Promise<st
   const response = await postGenerate(input, false);
 
   if (!response.ok) {
-    throw ollamaRequestFailedError(response.status);
+    throw ollamaRequestFailedError(getOllamaBaseUrl(), response.status);
   }
 
   const data = (await response.json()) as OllamaGenerateChunk;
@@ -80,11 +103,11 @@ export async function* streamWithOllama(input: OllamaGenerateInput): AsyncGenera
   const response = await postGenerate(input, true);
 
   if (!response.ok) {
-    throw ollamaRequestFailedError(response.status);
+    throw ollamaRequestFailedError(getOllamaBaseUrl(), response.status);
   }
 
   if (!response.body) {
-    throw new Error(`Ollama returned an empty stream at ${OLLAMA_BASE_URL}`);
+    throw new Error(`Ollama returned an empty stream at ${getOllamaBaseUrl()}`);
   }
 
   const reader = response.body.getReader();
