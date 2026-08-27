@@ -36,7 +36,19 @@ export async function POST(request: Request) {
       subjectId,
       chapterId,
     });
-    return NextResponse.json({ jsonlPath: dataset.jsonlPath }, { status: 201 });
+    return NextResponse.json(
+      {
+        id: dataset.id,
+        name: dataset.name,
+        exampleCount: dataset.exampleCount,
+        jsonlPath: dataset.jsonlPath,
+        filterCriteria: dataset.filterCriteria,
+        log: dataset.log,
+        exportedAt: dataset.exportedAt?.toISOString() ?? null,
+        createdAt: dataset.createdAt.toISOString(),
+      },
+      { status: 201 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Export failed";
     const clientError =

@@ -64,13 +64,50 @@ const chapterFormSchema = z.object({
   order: z.string().optional(),
 });
 
+const editFormSchema = z.object({
+  name: z.string().trim().min(1, "Name is required"),
+  order: z.string().optional(),
+});
+
 type ClassFormValues = z.infer<typeof classFormSchema>;
 type SubjectFormValues = z.infer<typeof subjectFormSchema>;
 type ChapterFormValues = z.infer<typeof chapterFormSchema>;
+type EditFormValues = z.infer<typeof editFormSchema>;
+
+type EntityKind = "class" | "subject" | "chapter";
+
+type DescendantCounts = {
+  subjects: number;
+  chapters: number;
+  topics: number;
+  trainingExamples: number;
+};
+
+const ENTITY_ENDPOINT: Record<EntityKind, string> = {
+  class: "/api/curriculum/classes",
+  subject: "/api/curriculum/subjects",
+  chapter: "/api/curriculum/chapters",
+};
 
 async function readError(response: Response) {
   const data = (await response.json().catch(() => null)) as { error?: string } | null;
   return data?.error ?? "Request failed";
+}
+
+function describeCascade(counts: DescendantCounts): string {
+  const parts = [
+    counts.subjects > 0 ? `${counts.subjects} subject${counts.subjects === 1 ? "" : "s"}` : null,
+    counts.chapters > 0 ? `${counts.chapters} chapter${counts.chapters === 1 ? "" : "s"}` : null,
+    counts.topics > 0 ? `${counts.topics} topic${counts.topics === 1 ? "" : "s"}` : null,
+    counts.trainingExamples > 0
+      ? `${counts.trainingExamples} training example${counts.trainingExamples === 1 ? "" : "s"}`
+      : null,
+  ].filter((part): part is string => part !== null);
+
+  if (parts.length === 0) {
+    return "Nothing else depends on this record.";
+  }
+  return `This also permanently removes ${parts.join(", ")}, including their chunks and embeddings.`;
 }
 
 export function CurriculumBoard({ initialClasses }: { initialClasses: CurriculumClass[] }) {
@@ -143,17 +180,21 @@ export function CurriculumBoard({ initialClasses }: { initialClasses: Curriculum
               <TableHead>Name</TableHead>
               <TableHead>Subjects</TableHead>
               <TableHead>Created</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {initialClasses.length === 0 ? (
-              <EmptyRow columns={3} label="No classes yet." />
+              <EmptyRow columns={4} label="No classes yet." />
             ) : (
               initialClasses.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell>{item.subjects.length}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(item.createdAt)}</TableCell>
+                  <TableCell>
+                    <RowActions kind="class" id={item.id} name={item.name} onDone={refresh} />
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -175,11 +216,12 @@ export function CurriculumBoard({ initialClasses }: { initialClasses: Curriculum
               <TableHead>Class</TableHead>
               <TableHead>Chapters</TableHead>
               <TableHead>Created</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {subjects.length === 0 ? (
-              <EmptyRow columns={4} label="No subjects yet." />
+              <EmptyRow columns={5} label="No subjects yet." />
             ) : (
               subjects.map((item) => (
                 <TableRow key={item.id}>
@@ -187,6 +229,9 @@ export function CurriculumBoard({ initialClasses }: { initialClasses: Curriculum
                   <TableCell>{item.className}</TableCell>
                   <TableCell>{item.chapters.length}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(item.createdAt)}</TableCell>
+                  <TableCell>
+                    <RowActions kind="subject" id={item.id} name={item.name} onDone={refresh} />
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -213,11 +258,12 @@ export function CurriculumBoard({ initialClasses }: { initialClasses: Curriculum
               <TableHead>Name</TableHead>
               <TableHead>Subject</TableHead>
               <TableHead>Class</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {chapters.length === 0 ? (
-              <EmptyRow columns={4} label="No chapters yet." />
+              <EmptyRow columns={5} label="No chapters yet." />
             ) : (
               chapters.map((item) => (
                 <TableRow key={item.id}>
@@ -225,6 +271,15 @@ export function CurriculumBoard({ initialClasses }: { initialClasses: Curriculum
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell>{item.subjectName}</TableCell>
                   <TableCell>{item.className}</TableCell>
+                  <TableCell>
+                    <RowActions
+                      kind="chapter"
+                      id={item.id}
+                      name={item.name}
+                      order={item.order}
+                      onDone={refresh}
+                    />
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -529,6 +584,214 @@ function AddChapterDialog({
             </DialogFooter>
           </form>
         </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RowActions({
+  kind,
+  id,
+  name,
+  order,
+  onDone,
+}: {
+  kind: EntityKind;
+  id: string;
+  name: string;
+  order?: number;
+  onDone: () => void;
+}) {
+  return (
+    <div className="flex justify-end gap-2">
+      <EditEntityDialog kind={kind} id={id} name={name} order={order} onSaved={onDone} />
+      <DeleteEntityDialog kind={kind} id={id} name={name} onDeleted={onDone} />
+    </div>
+  );
+}
+
+function EditEntityDialog({
+  kind,
+  id,
+  name,
+  order,
+  onSaved,
+}: {
+  kind: EntityKind;
+  id: string;
+  name: string;
+  order?: number;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const form = useForm<EditFormValues>({
+    resolver: zodResolver(editFormSchema),
+    defaultValues: { name, order: order === undefined ? "" : String(order) },
+  });
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) {
+      form.reset({ name, order: order === undefined ? "" : String(order) });
+      setError(null);
+    }
+  }
+
+  async function onSubmit(values: EditFormValues) {
+    setError(null);
+
+    const payload: Record<string, unknown> = { name: values.name };
+    if (kind === "chapter" && values.order?.trim()) {
+      const parsedOrder = Number(values.order);
+      if (!Number.isInteger(parsedOrder) || parsedOrder < 0) {
+        setError("Order must be a non-negative integer.");
+        return;
+      }
+      payload.order = parsedOrder;
+    }
+
+    const response = await fetch(`${ENTITY_ENDPOINT[kind]}/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      setError(await readError(response));
+      return;
+    }
+    setOpen(false);
+    onSaved();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" size="sm" variant="outline">
+          Edit
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit {kind}</DialogTitle>
+          <DialogDescription>Rename this {kind} without affecting its children.</DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {kind === "chapter" ? (
+              <FormField
+                control={form.control}
+                name="order"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Order</FormLabel>
+                    <FormControl>
+                      <Input type="number" min={0} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <DialogFooter>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteEntityDialog({
+  kind,
+  id,
+  name,
+  onDeleted,
+}: {
+  kind: EntityKind;
+  id: string;
+  name: string;
+  onDeleted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [counts, setCounts] = useState<DescendantCounts | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) return;
+
+    setCounts(null);
+    setError(null);
+    const response = await fetch(`${ENTITY_ENDPOINT[kind]}/${id}`);
+    if (!response.ok) {
+      setError(await readError(response));
+      return;
+    }
+    setCounts((await response.json()) as DescendantCounts);
+  }
+
+  async function handleDelete() {
+    setPending(true);
+    setError(null);
+    const response = await fetch(`${ENTITY_ENDPOINT[kind]}/${id}`, { method: "DELETE" });
+    setPending(false);
+    if (!response.ok) {
+      setError(await readError(response));
+      return;
+    }
+    setOpen(false);
+    onDeleted();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="text-destructive">
+          Delete
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete {name}?</DialogTitle>
+          <DialogDescription>
+            {counts === null
+              ? "Checking what depends on this record…"
+              : describeCascade(counts)}
+          </DialogDescription>
+        </DialogHeader>
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={pending || counts === null}
+            onClick={() => void handleDelete()}
+          >
+            {pending ? "Deleting…" : "Delete permanently"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

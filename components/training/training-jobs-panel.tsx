@@ -106,6 +106,22 @@ export function TrainingJobsPanel({
   const logsEndRef = useRef<HTMLPreElement>(null);
   const logsLenRef = useRef(0);
 
+  // Finished jobs never poll, so their logs have to be fetched once on load —
+  // otherwise a failed job shows the "waiting for output" placeholder forever.
+  useEffect(() => {
+    const jobId = job?.id;
+    if (!jobId) return;
+
+    const controller = new AbortController();
+    fetch(`/api/training/jobs/${jobId}/logs`, { signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ logs?: string }>) : null))
+      .then((body) => {
+        if (!controller.signal.aborted && body) setLogs(body.logs ?? "");
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [job?.id]);
+
   useEffect(() => {
     if (!job || !isActiveStatus(job.status)) return;
 

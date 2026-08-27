@@ -22,3 +22,15 @@ export async function PATCH(request: Request, context: RouteContext) {
   });
   return NextResponse.json(example);
 }
+
+export async function DELETE(_request: Request, context: RouteContext) {
+  const { id } = await context.params;
+
+  const existing = await prisma.trainingExample.findUnique({ where: { id } });
+  if (!existing) {
+    return NextResponse.json({ error: "Example not found" }, { status: 404 });
+  }
+
+  await prisma.trainingExample.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
+}

@@ -38,7 +38,9 @@ yarn-error.log*
 /data/adapters/
 /data/ollama/
 /data/datasets/
+/data/exports/
 training-service/__pycache__/
+training-service/.venv/
 **/__pycache__/
 *.py[cod]
 

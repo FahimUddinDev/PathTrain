@@ -1,7 +1,7 @@
 import { countTokens as countGptTokens } from "gpt-tokenizer/encoding/cl100k_base";
+import { MAX_TOKENS, MIN_TOKENS } from "./chunk-constants";
 
-export const MIN_TOKENS = 300;
-export const MAX_TOKENS = 500;
+export { MAX_TOKENS, MIN_TOKENS };
 
 type PieceKind = "paragraph" | "line" | "sentence" | "word";
 

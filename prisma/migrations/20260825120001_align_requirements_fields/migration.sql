@@ -84,5 +84,7 @@ ALTER TABLE "Chunk" ADD CONSTRAINT "Chunk_topicId_fkey" FOREIGN KEY ("topicId") 
 -- AddForeignKey
 ALTER TABLE "TrainingExample" ADD CONSTRAINT "TrainingExample_topicId_fkey" FOREIGN KEY ("topicId") REFERENCES "Topic"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Recreate pgvector cosine index dropped when Prisma rewrote Chunk FKs
-CREATE INDEX "Chunk_embedding_idx" ON "Chunk" USING ivfflat ("embedding" vector_cosine_ops) WITH (lists = 100);
+-- Recreate the pgvector cosine index. Prisma does not model ivfflat indexes, so it
+-- drops this one whenever it rewrites Chunk. IF NOT EXISTS keeps the migration
+-- replayable on a fresh database, where the FK rewrite above leaves the index intact.
+CREATE INDEX IF NOT EXISTS "Chunk_embedding_idx" ON "Chunk" USING ivfflat ("embedding" vector_cosine_ops) WITH (lists = 100);

@@ -77,3 +77,24 @@ export async function updateChunkEmbedding(chunkId: string, embedding: number[])
     WHERE id = ${chunkId}
   `;
 }
+
+/**
+ * Drop a stale vector when chunk text changes, so retrieval cannot return
+ * text that no longer matches its embedding before the re-embed lands.
+ */
+export async function markChunkPending(chunkId: string) {
+  await prisma.$executeRaw`
+    UPDATE "Chunk"
+    SET embedding = NULL,
+        "embeddingStatus" = 'pending'
+    WHERE id = ${chunkId}
+  `;
+}
+
+export async function markChunkEmbeddingFailed(chunkId: string) {
+  await prisma.$executeRaw`
+    UPDATE "Chunk"
+    SET "embeddingStatus" = 'failed'
+    WHERE id = ${chunkId}
+  `;
+}

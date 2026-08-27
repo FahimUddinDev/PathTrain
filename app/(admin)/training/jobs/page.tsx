@@ -1,20 +1,27 @@
 import { TrainingJobsPanel } from "@/components/training/training-jobs-panel";
 import {
   getActiveTrainingJob,
+  getTrainingJobById,
   listExportableDatasets,
 } from "@/lib/training/queries";
 
 export const dynamic = "force-dynamic";
 
-export default async function TrainingJobsPage() {
+export default async function TrainingJobsPage({
+  searchParams,
+}: {
+  searchParams?: { job?: string };
+}) {
   let datasets: Awaited<ReturnType<typeof listExportableDatasets>> = [];
   let activeJob: Awaited<ReturnType<typeof getActiveTrainingJob>> = null;
   let dbError: string | null = null;
 
+  const requestedJobId = searchParams?.job?.trim();
+
   try {
     [datasets, activeJob] = await Promise.all([
       listExportableDatasets(),
-      getActiveTrainingJob(),
+      requestedJobId ? getTrainingJobById(requestedJobId) : getActiveTrainingJob(),
     ]);
   } catch {
     dbError =
